@@ -1,0 +1,22 @@
+# depslib dependency file v1.0
+1449544562 source:/home/pi/robot/Robot/main.cpp
+	<stdio.h>
+	<iostream>
+	"NavigationCoordinator.h"
+	<thread>
+	<string>
+	<curses.h>
+
+1449455066 source:/home/pi/robot/Robot/src/InputProcessor.cpp
+	"InputProcessor.h"
+
+1449456703 /home/pi/robot/Robot/include/InputProcessor.h
+
+1449456568 source:/home/pi/robot/Robot/src/NavigationCoordinator.cpp
+	"NavigationCoordinator.h"
+
+1449456411 /home/pi/robot/Robot/include/NavigationCoordinator.h
+	<wiringPi.h>
+	<stdio.h>
+	"InputProcessor.h"
+
