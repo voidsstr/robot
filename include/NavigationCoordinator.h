@@ -18,14 +18,13 @@ class NavigationCoordinator
         NavigationCoordinator();
         virtual ~NavigationCoordinator();
         void Start();
-        void UpdateNavigationParameters(NavigationParameter* navigationParameter);
+        void UpdateNavigationParameters(DIRECTION navigationParameter);
     protected:
     private:
         void ProcessUpdate();
         int _rightWheelLevel;
         int _leftWheelLevel;
         std::stack<NavigationParameter*> _pendingUpdates;
-        std::mutex _updateMutex;
         void MoveForward();
 };
 
