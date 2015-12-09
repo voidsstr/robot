@@ -1,20 +1,18 @@
 #ifndef INPUTPROCESSOR_H
 #define INPUTPROCESSOR_H
 
+#include <curses.h>
+
+#include "NavigationParameter.h"
 
 class InputProcessor
 {
     public:
         InputProcessor();
         virtual ~InputProcessor();
-        void ProcessInput();
+        NavigationParameter* ProcessInput(int key);
     protected:
     private:
-};
-
-struct NavigationAdjustment
-{
-    int Navigation[4];
 };
 
 #endif // INPUTPROCESSOR_H

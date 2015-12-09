@@ -9,16 +9,17 @@ using namespace std;
 
 #define LedPin    1
 
-void InitiateNavigation()
+void InitiateNavigation(NavigationCoordinator* navigationCoordinator)
 {
-    NavigationCoordinator coordinator;
-
-    coordinator.Start();
+    //navigationCoordinator->Start();
 }
 
 int main(void)
 {
-    thread t1(InitiateNavigation);
+    //NavigationCoordinator navigationCoordinator;
+    InputProcessor inputProcessor;
+
+    //thread t1(InitiateNavigation, &navigationCoordinator);
 
     initscr();
     raw();
@@ -27,14 +28,12 @@ int main(void)
 
     int ch;
 
-    printw("Use the arrow keys to control the bot.");
+    printw("Use the arrow keys to control the bot.\n");
 
     while(true) {
         ch = getch();
 
-        if(ch == KEY_UP) {
-            printw("Up pressed!\n");
-        }
+        NavigationParameter* input = inputProcessor.ProcessInput(ch);
     }
 
 	return 0;

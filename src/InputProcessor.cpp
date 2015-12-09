@@ -10,7 +10,13 @@ InputProcessor::~InputProcessor()
     //dtor
 }
 
-void InputProcessor::ProcessInput()
+NavigationParameter* InputProcessor::ProcessInput(int key)
 {
+    printw("Key pressed");
 
+    if(key == 256) {
+
+    }
+
+    return NULL;
 }
