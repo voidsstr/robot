@@ -10,7 +10,7 @@ class InputProcessor
     public:
         InputProcessor();
         virtual ~InputProcessor();
-        NavigationParameter* ProcessInput(int key);
+        DIRECTION ProcessInput(int key);
     protected:
     private:
 };

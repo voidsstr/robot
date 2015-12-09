@@ -10,12 +10,12 @@ InputProcessor::~InputProcessor()
     //dtor
 }
 
-NavigationParameter* InputProcessor::ProcessInput(int key)
+DIRECTION InputProcessor::ProcessInput(int key)
 {
     printw("Key pressed");
 
     if(key == 256) {
-
+		return DIRECTION::UP;
     }
 
     return NULL;
