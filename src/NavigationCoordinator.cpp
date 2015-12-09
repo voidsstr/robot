@@ -13,13 +13,9 @@ NavigationCoordinator::~NavigationCoordinator()
     pwmWrite(LeftWheelPin, 0);
 }
 
-void NavigationCoordinator::UpdateNavigationParameters(NavigationParameter* navigationParameter)
+void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParameter)
 {
-    _updateMutex.lock();
-
     _pendingUpdates.push(navigationParameter);
-
-    _updateMutex.unlock();
 }
 
 void NavigationCoordinator::MoveForward()
@@ -40,42 +36,50 @@ void NavigationCoordinator::MoveForward()
     }
 }
 
-void NavigationCoordinator::ProcessUpdate()
+void NavigationCoordinator::MoveBackward()
 {
-    _updateMutex.lock();
-
-    while(_pendingUpdates.size() > 0) {
-        NavigationParameter* currentUpdate = _pendingUpdates.top();
-
-        if(currentUpdate -> Direction == UP) {
-            MoveForward();
-        }
+    //50-150 forward, 500-550 backwards
+    if(_leftWheelLevel <= 0) {
+        _leftWheelLevel = 0;
+    }
+    else {
+        _leftWheelLevel -= 10;
     }
 
-    _updateMutex.unlock();
+    if(_rightWheelLevel <= 0) {
+        _rightWheelLevel = 0;
+    }
+    else {
+        _rightWheelLevel -= 10;
+    }
+}
+
+void NavigationCoordinator::ProcessUpdate()
+{
+    if(_pendingUpdates.size() > 0) {
+        while(_pendingUpdates.size() > 0) {
+            DIRECTION currentUpdate = _pendingUpdates.top();
+
+            if(currentUpdate == DIRECTION::UP) {
+                MoveForward();
+            }
+            else if(currentUpdate == DIRECTION::DOWN) {
+                MoveForward();
+            }
+        }
+
+        pwmWrite(RightWheelPin, _rightWheelLevel);
+        pwmWrite(LeftWheelPin, _leftWheelLevel);
+    }
 }
 
 void NavigationCoordinator::Start()
 {
-	/*if(wiringPiSetup() == -1){ //when initialize wiring failed,print messageto screen
+	if(wiringPiSetup() == -1){ //when initialize wiring failed,print messageto screen
 		printw("setup wiringPi failed !\n");
 	}
     else {
         pinMode(RightWheelPin, PWM_OUTPUT);//pwm output mode
         pinMode(LeftWheelPin, PWM_OUTPUT);//pwm output mode
-
-        //50-150 forward, 500-550 backwards
-
-        while(1){
-
-            if(_pendingUpdates.size() > 0) {
-                ProcessUpdate();
-
-                pwmWrite(RightWheelPin, _rightWheelLevel);
-                pwmWrite(LeftWheelPin, _leftWheelLevel);
-            }
-
-            delay(100);
-        }
-    }*/
+    }
 }

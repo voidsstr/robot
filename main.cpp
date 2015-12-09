@@ -16,10 +16,8 @@ void InitiateNavigation(NavigationCoordinator* navigationCoordinator)
 
 int main(void)
 {
-    //NavigationCoordinator navigationCoordinator;
+    NavigationCoordinator navigationCoordinator;
     InputProcessor inputProcessor;
-
-    //thread t1(InitiateNavigation, &navigationCoordinator);
 
     initscr();
     raw();
@@ -33,7 +31,9 @@ int main(void)
     while(true) {
         ch = getch();
 
-        NavigationParameter* input = inputProcessor.ProcessInput(ch);
+        DIRECTION input = inputProcessor.ProcessInput(ch);
+        navigationCoordinator.UpdateNavigationParameters(input);
+        navigationCoordinator.ProcessUpdate();
     }
 
 	return 0;
