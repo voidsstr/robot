@@ -9,14 +9,11 @@ using namespace std;
 
 #define LedPin    1
 
-void InitiateNavigation(NavigationCoordinator* navigationCoordinator)
-{
-    //navigationCoordinator->Start();
-}
-
 int main(void)
 {
     NavigationCoordinator navigationCoordinator;
+    navigationCoordinator.Start();
+
     InputProcessor inputProcessor;
 
     initscr();

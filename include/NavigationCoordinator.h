@@ -9,8 +9,8 @@
 #include "InputProcessor.h"
 #include "NavigationParameter.h"
 
-#define RightWheelPin 0
-#define LeftWheelPin 1
+#define RightWheelPin 1
+#define LeftWheelPin 0
 
 class NavigationCoordinator
 {
@@ -19,13 +19,14 @@ class NavigationCoordinator
         virtual ~NavigationCoordinator();
         void Start();
         void UpdateNavigationParameters(DIRECTION navigationParameter);
+        void ProcessUpdate();
     protected:
     private:
-        void ProcessUpdate();
         int _rightWheelLevel;
         int _leftWheelLevel;
-        std::stack<NavigationParameter*> _pendingUpdates;
+        std::stack<DIRECTION> _pendingUpdates;
         void MoveForward();
+        void MoveBackward();
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

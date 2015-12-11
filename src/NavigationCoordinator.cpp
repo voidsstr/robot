@@ -38,20 +38,16 @@ void NavigationCoordinator::MoveForward()
 
 void NavigationCoordinator::MoveBackward()
 {
-    //50-150 forward, 500-550 backwards
-    if(_leftWheelLevel <= 0) {
-        _leftWheelLevel = 0;
-    }
-    else {
+    if(_leftWheelLevel >= 0 && _leftWheelLevel <= 150) {
         _leftWheelLevel -= 10;
     }
 
-    if(_rightWheelLevel <= 0) {
-        _rightWheelLevel = 0;
-    }
-    else {
+    if(_rightWheelLevel >= 0 && _rightWheelLevel <= 150) {
         _rightWheelLevel -= 10;
     }
+
+    //_leftWheelLevel = 500;
+    //_rightWheelLevel = 500;
 }
 
 void NavigationCoordinator::ProcessUpdate()
@@ -59,17 +55,18 @@ void NavigationCoordinator::ProcessUpdate()
     if(_pendingUpdates.size() > 0) {
         while(_pendingUpdates.size() > 0) {
             DIRECTION currentUpdate = _pendingUpdates.top();
+            _pendingUpdates.pop();
 
             if(currentUpdate == DIRECTION::UP) {
                 MoveForward();
             }
             else if(currentUpdate == DIRECTION::DOWN) {
-                MoveForward();
+                MoveBackward();
             }
         }
 
+
         pwmWrite(RightWheelPin, _rightWheelLevel);
-        pwmWrite(LeftWheelPin, _leftWheelLevel);
     }
 }
 

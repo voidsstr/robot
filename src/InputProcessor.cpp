@@ -12,11 +12,12 @@ InputProcessor::~InputProcessor()
 
 DIRECTION InputProcessor::ProcessInput(int key)
 {
-    printw("Key pressed");
-
-    if(key == 256) {
+    if(key == 259) {
 		return DIRECTION::UP;
     }
+    else if(key == 258) {
+        return DIRECTION::DOWN;
+    }
 
-    return NULL;
+    return DIRECTION::UNKNOWN;
 }
