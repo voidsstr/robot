@@ -24,12 +24,24 @@ void NavigationCoordinator::MoveForward()
     if(_leftWheelLevel >= 150) {
         _leftWheelLevel = 150;
     }
+    else if(_leftWheelLevel == 500) {
+        _leftWheelLevel = 0;
+    }
+    else if(_leftWheelLevel > 500) {
+        _leftWheelLevel -=10;
+    }
     else {
         _leftWheelLevel += 10;
     }
 
     if(_rightWheelLevel >= 150) {
         _rightWheelLevel = 150;
+    }
+    else if(_rightWheelLevel == 500) {
+        _rightWheelLevel = 0;
+    }
+    else if(_rightWheelLevel > 500) {
+        _rightWheelLevel -=10;
     }
     else {
         _rightWheelLevel += 10;
@@ -41,13 +53,23 @@ void NavigationCoordinator::MoveBackward()
     if(_leftWheelLevel >= 0 && _leftWheelLevel <= 150) {
         _leftWheelLevel -= 10;
     }
+    else if(_leftWheelLevel == 0) {
+        _leftWheelLevel = 500;
+    }
+    else {
+        _leftWheelLevel += 10;
+    }
 
     if(_rightWheelLevel >= 0 && _rightWheelLevel <= 150) {
         _rightWheelLevel -= 10;
     }
+    else if(_rightWheelLevel == 0) {
+        _rightWheelLevel = 500;
+    }
+    else {
+        _rightWheelLevel += 10;
+    }
 
-    //_leftWheelLevel = 500;
-    //_rightWheelLevel = 500;
 }
 
 void NavigationCoordinator::ProcessUpdate()
