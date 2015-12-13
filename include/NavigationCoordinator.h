@@ -11,6 +11,7 @@
 
 #define RightWheelPin 1
 #define LeftWheelPin 0
+#define MOVEMENT_INCREMENT 10
 
 class NavigationCoordinator
 {
@@ -25,8 +26,8 @@ class NavigationCoordinator
         int _rightWheelLevel;
         int _leftWheelLevel;
         std::stack<DIRECTION> _pendingUpdates;
-        void MoveForward();
-        void MoveBackward();
+        int Accelerate(int pwmValue);
+        int Decelerate(int pwmValue);
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

@@ -18,6 +18,12 @@ DIRECTION InputProcessor::ProcessInput(int key)
     else if(key == 258) {
         return DIRECTION::DOWN;
     }
+    else if(key == 260) {
+        return DIRECTION::LEFT;
+    }
+    else if(key == 261) {
+        return DIRECTION::RIGHT;
+    }
 
     return DIRECTION::UNKNOWN;
 }

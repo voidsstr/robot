@@ -18,58 +18,38 @@ void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParam
     _pendingUpdates.push(navigationParameter);
 }
 
-void NavigationCoordinator::MoveForward()
+int NavigationCoordinator::Accelerate(int pwmValue)
 {
     //50-150 forward, 500-550 backwards
-    if(_leftWheelLevel >= 150) {
-        _leftWheelLevel = 150;
+    if(pwmValue >= 150) {
+        pwmValue = 150;
     }
-    else if(_leftWheelLevel == 500) {
-        _leftWheelLevel = 0;
+    else if(pwmValue == 500) {
+        pwmValue = 0;
     }
-    else if(_leftWheelLevel > 500) {
-        _leftWheelLevel -=10;
+    else if(pwmValue > 500) {
+        pwmValue -= MOVEMENT_INCREMENT;
     }
     else {
-        _leftWheelLevel += 10;
+        pwmValue += MOVEMENT_INCREMENT;
     }
 
-    if(_rightWheelLevel >= 150) {
-        _rightWheelLevel = 150;
-    }
-    else if(_rightWheelLevel == 500) {
-        _rightWheelLevel = 0;
-    }
-    else if(_rightWheelLevel > 500) {
-        _rightWheelLevel -=10;
-    }
-    else {
-        _rightWheelLevel += 10;
-    }
+    return pwmValue;
 }
 
-void NavigationCoordinator::MoveBackward()
+int NavigationCoordinator::Decelerate(int pwmValue)
 {
-    if(_leftWheelLevel >= 0 && _leftWheelLevel <= 150) {
-        _leftWheelLevel -= 10;
+    if(pwmValue >= 0 && pwmValue <= 150) {
+        pwmValue;
     }
-    else if(_leftWheelLevel == 0) {
-        _leftWheelLevel = 500;
-    }
-    else {
-        _leftWheelLevel += 10;
-    }
-
-    if(_rightWheelLevel >= 0 && _rightWheelLevel <= 150) {
-        _rightWheelLevel -= 10;
-    }
-    else if(_rightWheelLevel == 0) {
-        _rightWheelLevel = 500;
+    else if(pwmValue == 0) {
+        pwmValue = 500;
     }
     else {
-        _rightWheelLevel += 10;
+        pwmValue += MOVEMENT_INCREMENT;
     }
 
+    return pwmValue;
 }
 
 void NavigationCoordinator::ProcessUpdate()
@@ -80,15 +60,25 @@ void NavigationCoordinator::ProcessUpdate()
             _pendingUpdates.pop();
 
             if(currentUpdate == DIRECTION::UP) {
-                MoveForward();
+                _leftWheelLevel = Accelerate(_leftWheelLevel);
+                _rightWheelLevel = Accelerate(_rightWheelLevel);
             }
             else if(currentUpdate == DIRECTION::DOWN) {
-                MoveBackward();
+                _leftWheelLevel = Decelerate(_leftWheelLevel);
+                _rightWheelLevel = Decelerate(_rightWheelLevel);
+            }
+            else if(currentUpdate == DIRECTION::LEFT) {
+                _leftWheelLevel = Decelerate(_leftWheelLevel);
+                _rightWheelLevel = Accelerate(_rightWheelLevel);
+            }
+            else if(currentUpdate == DIRECTION::RIGHT) {
+                _leftWheelLevel = Accelerate(_leftWheelLevel);
+                _rightWheelLevel = Decelerate(_rightWheelLevel);
             }
         }
 
 
-        pwmWrite(RightWheelPin, _rightWheelLevel);
+        pwmWrite(RightWheelPin, 550);
     }
 }
 
