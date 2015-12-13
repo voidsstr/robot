@@ -20,6 +20,8 @@ void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParam
 
 int NavigationCoordinator::Accelerate(int pwmValue)
 {
+    printw("Accelerated\n");
+
     //50-150 forward, 500-550 backwards
     if(pwmValue >= 150) {
         pwmValue = 150;
@@ -39,6 +41,8 @@ int NavigationCoordinator::Accelerate(int pwmValue)
 
 int NavigationCoordinator::Decelerate(int pwmValue)
 {
+    printw("Decelerated\n");
+
     if(pwmValue >= 0 && pwmValue <= 150) {
         pwmValue;
     }
