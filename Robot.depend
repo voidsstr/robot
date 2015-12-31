@@ -20,23 +20,26 @@
 	<stdio.h>
 	"InputProcessor.h"
 
-1449804607 source:/home/pi/git/robot/main.cpp
+1451591878 source:/home/pi/git/robot/main.cpp
 	<stdio.h>
 	<iostream>
 	"NavigationCoordinator.h"
 	<thread>
 	<string>
 	<curses.h>
+	<wiringPi.h>
+	<softPwm.h>
 
 1450024249 source:/home/pi/git/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1450024249 source:/home/pi/git/robot/src/NavigationCoordinator.cpp
+1451591919 source:/home/pi/git/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
-1450024249 /home/pi/git/robot/include/NavigationCoordinator.h
+1451591866 /home/pi/git/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
 	<stdio.h>
+	<stdlib.h>
 	<mutex>
 	<stack>
 	"InputProcessor.h"

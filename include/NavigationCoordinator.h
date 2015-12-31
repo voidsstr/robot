@@ -3,6 +3,7 @@
 
 #include <wiringPi.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <mutex>
 #include <stack>
 
@@ -11,7 +12,7 @@
 
 #define RightWheelPin 1
 #define LeftWheelPin 0
-#define MOVEMENT_INCREMENT 10
+#define MOVEMENT_INCREMENT 1
 
 class NavigationCoordinator
 {
@@ -23,11 +24,9 @@ class NavigationCoordinator
         void ProcessUpdate();
     protected:
     private:
-        int _rightWheelLevel;
-        int _leftWheelLevel;
         std::stack<DIRECTION> _pendingUpdates;
-        int Accelerate(int pwmValue);
-        int Decelerate(int pwmValue);
+        int Accelerate();
+        int Decelerate();
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

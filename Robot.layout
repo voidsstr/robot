@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <CodeBlocks_layout_file>
 	<ActiveTarget name="Debug" />
+	<File name="include/InputProcessor.h" open="1" top="0" tabpos="3">
+		<Cursor position="0" topLine="0" />
+	</File>
+	<File name="include/NavigationCoordinator.h" open="1" top="0" tabpos="4">
+		<Cursor position="267" topLine="0" />
+	</File>
 	<File name="main.cpp" open="1" top="0" tabpos="1">
 		<Cursor position="274" topLine="0" />
 	</File>
 	<File name="src/InputProcessor.cpp" open="1" top="0" tabpos="2">
 		<Cursor position="0" topLine="0" />
+	</File>
+	<File name="src/NavigationCoordinator.cpp" open="1" top="1" tabpos="5">
+		<Cursor position="2176" topLine="60" />
 	</File>
 </CodeBlocks_layout_file>

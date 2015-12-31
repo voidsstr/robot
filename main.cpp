@@ -4,13 +4,20 @@
 #include <thread>
 #include <string>
 #include <curses.h>
+#include <wiringPi.h>
+#include <softPwm.h>
 
 using namespace std;
 
-#define LedPin    1
-
 int main(void)
 {
+    if(wiringPiSetup() == -1)
+    {
+        printw("Could not initialize wiring pi");
+    }
+
+    pinMode(0, OUTPUT);
+
     NavigationCoordinator navigationCoordinator;
     navigationCoordinator.Start();
 
@@ -23,7 +30,7 @@ int main(void)
 
     int ch;
 
-    printw("Use the arrow keys to control the bot.\n");
+    digitalWrite(0, LOW);
 
     while(true) {
         ch = getch();

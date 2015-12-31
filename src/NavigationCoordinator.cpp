@@ -2,15 +2,14 @@
 
 NavigationCoordinator::NavigationCoordinator()
 {
-    _rightWheelLevel = 0;
-    _leftWheelLevel = 0;
+
 }
 
 NavigationCoordinator::~NavigationCoordinator()
 {
     //dtor
-    pwmWrite(RightWheelPin, 0);
-    pwmWrite(LeftWheelPin, 0);
+    digitalWrite(0, LOW);
+    digitalWrite(1, LOW);
 }
 
 void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParameter)
@@ -18,42 +17,22 @@ void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParam
     _pendingUpdates.push(navigationParameter);
 }
 
-int NavigationCoordinator::Accelerate(int pwmValue)
+int NavigationCoordinator::Accelerate()
 {
-    printw("Accelerated\n");
+    mvprintw(0, 0, "Accellerated\n");
 
-    //50-150 forward, 500-550 backwards
-    if(pwmValue >= 150) {
-        pwmValue = 150;
-    }
-    else if(pwmValue == 500) {
-        pwmValue = 0;
-    }
-    else if(pwmValue > 500) {
-        pwmValue -= MOVEMENT_INCREMENT;
-    }
-    else {
-        pwmValue += MOVEMENT_INCREMENT;
-    }
-
-    return pwmValue;
+    digitalWrite(0, HIGH);
+    delay(100);
+    digitalWrite(0, LOW);
 }
 
-int NavigationCoordinator::Decelerate(int pwmValue)
+int NavigationCoordinator::Decelerate()
 {
-    printw("Decelerated\n");
+    mvprintw(0, 0, "Decelerated\n");
 
-    if(pwmValue >= 0 && pwmValue <= 150) {
-        pwmValue;
-    }
-    else if(pwmValue == 0) {
-        pwmValue = 500;
-    }
-    else {
-        pwmValue += MOVEMENT_INCREMENT;
-    }
-
-    return pwmValue;
+    digitalWrite(1, HIGH);
+    delay(100);
+    digitalWrite(1, LOW);
 }
 
 void NavigationCoordinator::ProcessUpdate()
@@ -64,25 +43,18 @@ void NavigationCoordinator::ProcessUpdate()
             _pendingUpdates.pop();
 
             if(currentUpdate == DIRECTION::UP) {
-                _leftWheelLevel = Accelerate(_leftWheelLevel);
-                _rightWheelLevel = Accelerate(_rightWheelLevel);
+                Accelerate();
             }
             else if(currentUpdate == DIRECTION::DOWN) {
-                _leftWheelLevel = Decelerate(_leftWheelLevel);
-                _rightWheelLevel = Decelerate(_rightWheelLevel);
+                Decelerate();
             }
             else if(currentUpdate == DIRECTION::LEFT) {
-                _leftWheelLevel = Decelerate(_leftWheelLevel);
-                _rightWheelLevel = Accelerate(_rightWheelLevel);
+
             }
             else if(currentUpdate == DIRECTION::RIGHT) {
-                _leftWheelLevel = Accelerate(_leftWheelLevel);
-                _rightWheelLevel = Decelerate(_rightWheelLevel);
+
             }
         }
-
-
-        pwmWrite(RightWheelPin, 550);
     }
 }
 
@@ -92,7 +64,7 @@ void NavigationCoordinator::Start()
 		printw("setup wiringPi failed !\n");
 	}
     else {
-        pinMode(RightWheelPin, PWM_OUTPUT);//pwm output mode
-        pinMode(LeftWheelPin, PWM_OUTPUT);//pwm output mode
+        pinMode(0, OUTPUT);
+        pinMode(1, OUTPUT);
     }
 }
