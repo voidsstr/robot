@@ -25,8 +25,10 @@ class NavigationCoordinator
     protected:
     private:
         std::stack<DIRECTION> _pendingUpdates;
-        int Accelerate();
-        int Decelerate();
+        void Accelerate();
+        void Decelerate();
+        void RotateLeft();
+        void RotateRight();
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

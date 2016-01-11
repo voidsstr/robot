@@ -1,51 +1,84 @@
 #include <Servo.h> // include the Servo library
-#include <ContinuousRotationServo.h>
 
 // create the servo objects
-ContinuousRotationServo Servo;
+int isAccellerating = 0;
+int isDecellerating = 0;
 
-int accellerate = 0;
-int decellerate = 0;
+int isRotatingLeft = 0;
+int isRotatingRight = 0;
 
 int accelleratePin = 7;
 int decelleratePin = 6;
 
-int level = 0;
-boolean started = false;
+int rotateLeftPin = 4;
+int rotateRightPin = 5;
+
+int rightMotorLevel = 90;
+int leftMotorLevel = 90;
+
+Servo* rightMotor = new Servo();
+Servo* leftMotor = new Servo();
 
 void setup()
 {
-  Servo.begin(2);
+  leftMotor->attach(10);
+  rightMotor->attach(11);
   
   pinMode(accelleratePin, INPUT);
   pinMode(decelleratePin, INPUT);
+  
+  pinMode(rotateLeftPin, INPUT);
+  pinMode(rotateRightPin, INPUT);
 }
 
 void loop()
 {
-  accellerate = digitalRead(accelleratePin);
-  decellerate = digitalRead(decelleratePin);
+  delay(5);
   
-  if(started && level == 0)
+  isAccellerating = digitalRead(accelleratePin);
+  isDecellerating = digitalRead(decelleratePin);
+  
+  isRotatingLeft = digitalRead(rotateLeftPin);
+  isRotatingRight = digitalRead(rotateRightPin);
+  
+  if(isAccellerating == HIGH)
   {
-     started = false; 
+    accellerate(rightMotor);
+    accellerate(leftMotor);
+  }
+  else if(isDecellerating == HIGH)
+  {
+    decellerate(rightMotor);
+    decellerate(leftMotor);
   }
   
-  if(accellerate == HIGH)
+  if(isRotatingLeft == HIGH)
   {
-    started = true;
-    level += 1;
+    accellerate(leftMotor);
+    decellerate(rightMotor);
   }
+  else if(isRotatingRight == HIGH)
+  {
+    accellerate(leftMotor);
+    decellerate(rightMotor);
+  }
+}
+
+void accellerate(Servo* servo)
+{
+  int currentValue = servo->read();
   
-  if(decellerate == HIGH)
-  {
-    started = true;
-    level -= 1;
-  }
+  currentValue -= 1;
   
-  if(started)
-  {
-    Servo.rotate(level);
-  }
+  servo->write(currentValue);
+}
+
+void decellerate(Servo* servo)
+{
+  int currentValue = servo->read();
+  
+  currentValue += 1;
+  
+  servo->write(currentValue);
 }
 
