@@ -20,6 +20,7 @@
 				<Linker>
 					<Add library="wiringPi" />
 					<Add library="ncurses" />
+					<Add library="pthread" />
 				</Linker>
 			</Target>
 			<Target title="Release">
@@ -39,9 +40,11 @@
 			<Add option="-Wall" />
 			<Add option="-fexceptions" />
 		</Compiler>
+		<Unit filename="include/CommunicationManager.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
 		<Unit filename="main.cpp" />
+		<Unit filename="src/CommunicationManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />
 		<Extensions>

@@ -51,3 +51,38 @@
 
 1449801881 /home/pi/git/robot/include/NavigationParameter.h
 
+1453065480 source:/home/mike/robot/main.cpp
+	<stdio.h>
+	<iostream>
+	"NavigationCoordinator.h"
+	<string>
+	<curses.h>
+	<wiringPi.h>
+	<softPwm.h>
+
+1453061875 /home/mike/robot/include/NavigationCoordinator.h
+	<wiringPi.h>
+	<stdio.h>
+	<stdlib.h>
+	<mutex>
+	<stack>
+	"InputProcessor.h"
+	"NavigationParameter.h"
+
+1453061875 /home/mike/robot/include/InputProcessor.h
+	<curses.h>
+	"NavigationParameter.h"
+
+1453061875 /home/mike/robot/include/NavigationParameter.h
+
+1453061875 source:/home/mike/robot/src/InputProcessor.cpp
+	"InputProcessor.h"
+
+1453061875 source:/home/mike/robot/src/NavigationCoordinator.cpp
+	"NavigationCoordinator.h"
+
+1453065048 source:/home/mike/robot/src/CommunicationManager.cpp
+	"CommunicationManager.h"
+
+1453065048 /home/mike/robot/include/CommunicationManager.h
+

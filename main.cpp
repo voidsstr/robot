@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <iostream>
 #include "NavigationCoordinator.h"
-#include <thread>
 #include <string>
 #include <curses.h>
 #include <wiringPi.h>
