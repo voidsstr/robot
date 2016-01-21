@@ -54,8 +54,8 @@ void loop()
   
   if(isRotatingLeft == HIGH)
   {
-    accellerate(leftMotor);
-    decellerate(rightMotor);
+    accellerate(rightMotor);
+    decellerate(leftMotor);
   }
   else if(isRotatingRight == HIGH)
   {

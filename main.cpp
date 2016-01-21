@@ -1,16 +1,24 @@
 #include <stdio.h>
 #include <iostream>
-#include "NavigationCoordinator.h"
 #include <thread>
 #include <string>
 #include <curses.h>
 #include <wiringPi.h>
 #include <softPwm.h>
 
+#include "NavigationCoordinator.h"
+#include "CommunicationManager.h"
+
 using namespace std;
 
 int main(void)
 {
+    if (argc != 2)
+    {
+        std::cerr << "Usage: <host>" << std::endl;
+        return 1;
+    }
+
     if(wiringPiSetup() == -1)
     {
         printw("Could not initialize wiring pi");
@@ -20,6 +28,9 @@ int main(void)
 
     NavigationCoordinator navigationCoordinator;
     navigationCoordinator.Start();
+
+    CommunicationManager communicationManager;
+    communicationManager.Start();
 
     InputProcessor inputProcessor;
 
