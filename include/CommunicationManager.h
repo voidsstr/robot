@@ -4,6 +4,8 @@
 #include <iostream>
 #include <boost/array.hpp>
 #include <boost/asio.hpp>
+#include <string>
+#include <curses.h>
 
 class CommunicationManager
 {
@@ -11,7 +13,7 @@ class CommunicationManager
         CommunicationManager();
         virtual ~CommunicationManager();
 
-        void Start();
+        void Start(char* ipAddress, char* port);
     protected:
     private:
 };

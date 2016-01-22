@@ -13,39 +13,25 @@ CommunicationManager::~CommunicationManager()
     //dtor
 }
 
-CommunicationManager::Start()
+void CommunicationManager::Start(char* ipAddress, char* port)
 {
-    try
-    {
-        boost::asio::io_service io_service;
+    boost::asio::io_service io_service;
 
-        tcp::resolver resolver(io_service);
+    tcp::socket s(io_service);
+    tcp::resolver resolver(io_service);
+    boost::asio::connect(s, resolver.resolve({ipAddress, port}));
 
-        ip::tcp::endpoint tcp(
-                ip::address::from_string(argv[0]),
-                13
-                );
+    mvprintw(0, 0, "Enter message");
 
-        tcp::socket socket(io_service);
-        socket.connect(tcp);
+    //TODO: implement packet handling mechanism to interpret keystrokes
 
-        for (;;)
-        {
-          boost::array<char, 128> buf;
-          boost::system::error_code error;
+    char request[1024];
+    std::cin.getline(request, 1024);
+    size_t request_length = std::strlen(request);
+    boost::asio::write(s, boost::asio::buffer(request, request_length));
 
-          size_t len = socket.read_some(boost::asio::buffer(buf), error);
+    char reply[1024];
+    size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply, request_length));
 
-          if (error == boost::asio::error::eof)
-            break; // Connection closed cleanly by peer.
-          else if (error)
-            throw boost::system::system_error(error); // Some other error.
-
-          std::cout.write(buf.data(), len);
-        }
-    }
-    catch (std::exception& e)
-    {
-        std::cerr << e.what() << std::endl;
-    }
+    mvprintw(0, 0, reply);
 }

@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <iostream>
-#include <thread>
 #include <string>
 #include <curses.h>
 #include <wiringPi.h>
@@ -11,37 +10,28 @@
 
 using namespace std;
 
-int main(void)
+int main(int argc, char* argv[])
 {
-    if (argc != 2)
+    if (argc != 3)
     {
-        std::cerr << "Usage: <host>" << std::endl;
+        mvprintw(0, 0, "Usage: <host> <port>\n");
         return 1;
     }
-
-    if(wiringPiSetup() == -1)
-    {
-        printw("Could not initialize wiring pi");
-    }
-
-    pinMode(0, OUTPUT);
-
-    NavigationCoordinator navigationCoordinator;
-    navigationCoordinator.Start();
-
-    CommunicationManager communicationManager;
-    communicationManager.Start();
-
-    InputProcessor inputProcessor;
 
     initscr();
     raw();
     keypad(stdscr, TRUE);
     noecho();
 
-    int ch;
+    NavigationCoordinator navigationCoordinator;
+    navigationCoordinator.Start();
 
-    digitalWrite(0, LOW);
+    CommunicationManager communicationManager;
+    communicationManager.Start(argv[1], argv[2]);
+
+    InputProcessor inputProcessor;
+
+    int ch;
 
     while(true) {
         ch = getch();

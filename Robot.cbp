@@ -12,7 +12,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="10.0.0.29" />
+				<Option parameters="10.0.0.29 1337" />
 				<Compiler>
 					<Add option="-g" />
 					<Add option="-std=gnu++0x" />
@@ -44,9 +44,11 @@
 			<Add option="-Wall" />
 			<Add option="-fexceptions" />
 		</Compiler>
+		<Unit filename="include/CommunicationManager.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
 		<Unit filename="main.cpp" />
+		<Unit filename="src/CommunicationManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />
 		<Extensions>
