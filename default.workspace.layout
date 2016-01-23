@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <CodeBlocks_workspace_layout_file>
-	<ActiveProject path="Robot.cbp" />
+	<ActiveProject path="../robot-server/robot-server.cbp" />
 </CodeBlocks_workspace_layout_file>

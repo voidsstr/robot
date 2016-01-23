@@ -99,3 +99,47 @@
 	<thread>
 	<stdio.h>
 
+1453554579 source:/home/mike/dev/robot/main.cpp
+	<stdio.h>
+	<iostream>
+	<string>
+	<curses.h>
+	<wiringPi.h>
+	<softPwm.h>
+	"NavigationCoordinator.h"
+	"CommunicationManager.h"
+
+1453554579 /home/mike/dev/robot/include/NavigationCoordinator.h
+	<wiringPi.h>
+	<stdio.h>
+	<stdlib.h>
+	<mutex>
+	<stack>
+	"InputProcessor.h"
+	"NavigationParameter.h"
+
+1453554579 /home/mike/dev/robot/include/InputProcessor.h
+	<curses.h>
+	"NavigationParameter.h"
+
+1453554579 /home/mike/dev/robot/include/NavigationParameter.h
+
+1453554579 /home/mike/dev/robot/include/CommunicationManager.h
+	"NavigationCoordinator.h"
+	<iostream>
+	<boost/array.hpp>
+	<boost/asio.hpp>
+	<string>
+	<curses.h>
+	<thread>
+	<stdio.h>
+
+1453554579 source:/home/mike/dev/robot/src/CommunicationManager.cpp
+	"CommunicationManager.h"
+
+1453554579 source:/home/mike/dev/robot/src/InputProcessor.cpp
+	"InputProcessor.h"
+
+1453554579 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
+	"NavigationCoordinator.h"
+
