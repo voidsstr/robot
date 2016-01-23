@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <CodeBlocks_layout_file>
 	<ActiveTarget name="Debug" />
-	<File name="include/CommunicationManager.h" open="0" top="0" tabpos="2">
-		<Cursor position="297" topLine="0" />
+	<File name="include/CommunicationManager.h" open="1" top="0" tabpos="2">
+		<Cursor position="362" topLine="0" />
 	</File>
 	<File name="include/InputProcessor.h" open="0" top="0" tabpos="3">
 		<Cursor position="0" topLine="0" />
@@ -10,16 +10,16 @@
 	<File name="include/NavigationCoordinator.h" open="0" top="0" tabpos="4">
 		<Cursor position="267" topLine="0" />
 	</File>
-	<File name="main.cpp" open="1" top="1" tabpos="0">
-		<Cursor position="632" topLine="11" />
+	<File name="main.cpp" open="1" top="0" tabpos="1">
+		<Cursor position="266" topLine="1" />
 	</File>
-	<File name="src/CommunicationManager.cpp" open="0" top="0" tabpos="3">
-		<Cursor position="373" topLine="0" />
+	<File name="src/CommunicationManager.cpp" open="1" top="1" tabpos="3">
+		<Cursor position="329" topLine="0" />
 	</File>
-	<File name="src/InputProcessor.cpp" open="0" top="0" tabpos="2">
+	<File name="src/InputProcessor.cpp" open="1" top="0" tabpos="4">
 		<Cursor position="0" topLine="0" />
 	</File>
-	<File name="src/NavigationCoordinator.cpp" open="0" top="0" tabpos="5">
-		<Cursor position="209" topLine="0" />
+	<File name="src/NavigationCoordinator.cpp" open="1" top="0" tabpos="5">
+		<Cursor position="945" topLine="33" />
 	</File>
 </CodeBlocks_layout_file>

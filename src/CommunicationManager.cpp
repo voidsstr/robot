@@ -3,9 +3,10 @@
 using boost::asio::ip::tcp;
 using namespace boost::asio;
 
-CommunicationManager::CommunicationManager()
+CommunicationManager::CommunicationManager(NavigationCoordinator* navigationCoordinator)
 {
     //ctor
+    _navigationCoordinator = navigationCoordinator;
 }
 
 CommunicationManager::~CommunicationManager()
@@ -13,9 +14,9 @@ CommunicationManager::~CommunicationManager()
     //dtor
 }
 
-void CommunicationManager::Start(char* ipAddress, char* port)
+void Session(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator)
 {
-    boost::asio::io_service io_service;
+    /*boost::asio::io_service io_service;
 
     tcp::socket s(io_service);
     tcp::resolver resolver(io_service);
@@ -31,7 +32,15 @@ void CommunicationManager::Start(char* ipAddress, char* port)
     boost::asio::write(s, boost::asio::buffer(request, request_length));
 
     char reply[1024];
-    size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply, request_length));
+    size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply, request_length));*/
+    for(;;)
+    {
+        usleep(1000);
+        navigationCoordinator->UpdateNavigationParameters(DIRECTION::UP);
+    }
+}
 
-    mvprintw(0, 0, reply);
+void CommunicationManager::Start(char* ipAddress, char* port)
+{
+    std::thread(Session, ipAddress, port, _navigationCoordinator).detach();
 }

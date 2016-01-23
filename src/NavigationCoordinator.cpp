@@ -75,6 +75,9 @@ void NavigationCoordinator::ProcessUpdate()
             else if(currentUpdate == DIRECTION::RIGHT) {
                 RotateRight();
             }
+            else {
+                mvprintw(0, 0, "No movement\n");
+            }
         }
     }
 }

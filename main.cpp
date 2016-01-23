@@ -18,7 +18,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    initscr();
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
     raw();
     keypad(stdscr, TRUE);
     noecho();
@@ -26,7 +28,7 @@ int main(int argc, char* argv[])
     NavigationCoordinator navigationCoordinator;
     navigationCoordinator.Start();
 
-    CommunicationManager communicationManager;
+    CommunicationManager communicationManager(&navigationCoordinator);
     communicationManager.Start(argv[1], argv[2]);
 
     InputProcessor inputProcessor;
@@ -37,7 +39,12 @@ int main(int argc, char* argv[])
         ch = getch();
 
         DIRECTION input = inputProcessor.ProcessInput(ch);
-        navigationCoordinator.UpdateNavigationParameters(input);
+
+        if(input != DIRECTION::UNKNOWN)
+        {
+            navigationCoordinator.UpdateNavigationParameters(input);
+        }
+
         navigationCoordinator.ProcessUpdate();
     }
 
