@@ -17,23 +17,17 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
 
     tcp::socket s(io_service);
     tcp::resolver resolver(io_service);
+
+    //Connect to server
     boost::asio::connect(s, resolver.resolve({ipAddress, port}));
 
-    mvprintw(0, 0, "Enter message");
-
-    //TODO: implement packet handling mechanism to interpret keystrokes
-
-    char request[1024];
-    std::cin.getline(request, 1024);
-    size_t request_length = std::strlen(request);
-    boost::asio::write(s, boost::asio::buffer(request, request_length));
-
     char reply[1024];
-    size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply, request_length));
 
     for(;;)
     {
-        usleep(1000);
+        //Read data
+        size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply));
+
         navigationCoordinator->UpdateNavigationParameters(DIRECTION::UP);
     }
 }
