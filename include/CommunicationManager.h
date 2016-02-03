@@ -11,6 +11,9 @@
 #include <thread>
 #include <stdio.h>
 
+using boost::asio::ip::tcp;
+using namespace boost::asio;
+
 class CommunicationManager
 {
     public:
@@ -20,7 +23,8 @@ class CommunicationManager
         void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator);
         void StartListening();
         void SendMessage(int message);
-    protected:
+    private:
+        tcp::socket* _socket;
 };
 
 #endif // COMMUNICATIONMANAGER_H

@@ -12,13 +12,6 @@ using namespace std;
 
 void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigationCoordinator, CommunicationManager* communicationManager)
 {
-    WINDOW *w = initscr();
-    cbreak();
-    nodelay(w, TRUE);
-    raw();
-    keypad(stdscr, TRUE);
-    noecho();
-
     int ch;
 
     while(true)
@@ -38,14 +31,9 @@ void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigation
 
 void serverLoop(InputProcessor* inputProcessor, CommunicationManager* communicationManager)
 {
-    WINDOW *w = initscr();
-    cbreak();
-    nodelay(w, TRUE);
-    raw();
-    keypad(stdscr, TRUE);
-    noecho();
-
     int ch;
+
+    mvprintw(0, 0, "Enter commands to send to robot...\n");
 
     while(true)
     {
@@ -61,11 +49,23 @@ void serverLoop(InputProcessor* inputProcessor, CommunicationManager* communicat
     }
 }
 
+void setupInputWindow()
+{
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
+}
+
 /*
 Usage: <executable> <mode> <host?> <port?>
 */
 int main(int argc, char* argv[])
 {
+    setupInputWindow();
+
     bool isRobot = strcmp(argv[1], "robot") == 0;
 
     CommunicationManager communicationManager;
