@@ -50,7 +50,7 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
 void CommunicationManager::SendMessage(int message)
 {
     boost::system::error_code ignored_error;
-    boost::asio::write(*_socket, boost::asio::buffer(std::to_string(message)),
+    boost::asio::write(*_socket, boost::asio::buffer(&message, sizeof(message)),
         boost::asio::transfer_all(), ignored_error);
 }
 
