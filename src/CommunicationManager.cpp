@@ -11,7 +11,7 @@ CommunicationManager::~CommunicationManager()
 }
 
 /*Main communication loop*/
-void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* communicationManager, NavigationCoordinator* navigationCoordinator)
+void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* communicationManager, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
 {
     boost::asio::io_service io_service;
 
@@ -26,7 +26,7 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
     for(;;)
     {
         //Read data
-        boost::array<char, 128> buf;
+        boost::array<int, 1> buf;
         boost::system::error_code error;
 
         size_t len = s.read_some(boost::asio::buffer(buf), error);
@@ -36,20 +36,27 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
         else if (error)
             throw boost::system::system_error(error); // Some other error.
 
-        navigationCoordinator->UpdateNavigationParameters(DIRECTION::UP);
+        DIRECTION input = inputProcessor->ProcessInput(buf[0]);
+
+        if(input != DIRECTION::UNKNOWN)
+        {
+            //Directly control robot
+            navigationCoordinator->UpdateNavigationParameters(input);
+            navigationCoordinator->ProcessUpdate();
+        }
     }
 }
 
 void CommunicationManager::SendMessage(int message)
 {
     boost::system::error_code ignored_error;
-    boost::asio::write(*_socket, boost::asio::buffer("test\n"),
+    boost::asio::write(*_socket, boost::asio::buffer(std::to_string(message)),
         boost::asio::transfer_all(), ignored_error);
 }
 
-void CommunicationManager::Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator)
+void CommunicationManager::Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
 {
-    std::thread(ListenToNetworkCommands, ipAddress, port, this, navigationCoordinator).detach();
+    std::thread(ListenToNetworkCommands, ipAddress, port, this, navigationCoordinator, inputProcessor).detach();
 }
 
 void CommunicationManager::StartListening()

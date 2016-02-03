@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
         navigationCoordinator.Start();
 
         /*Start listenining to commands from server*/
-        communicationManager.Connect(argv[2], argv[3], &navigationCoordinator);
+        communicationManager.Connect(argv[2], argv[3], &navigationCoordinator, &inputProcessor);
 
         robotLoop(&inputProcessor, &navigationCoordinator, &communicationManager);
     }

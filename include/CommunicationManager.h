@@ -20,7 +20,7 @@ class CommunicationManager
         CommunicationManager();
         virtual ~CommunicationManager();
 
-        void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator);
+        void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
         void StartListening();
         void SendMessage(int message);
     private:
