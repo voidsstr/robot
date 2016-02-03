@@ -14,13 +14,13 @@
 class CommunicationManager
 {
     public:
-        CommunicationManager(NavigationCoordinator* navigationCoordinator);
+        CommunicationManager();
         virtual ~CommunicationManager();
 
-        void Start(char* ipAddress, char* port);
+        void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator);
+        void StartListening();
+        void SendMessage(int message);
     protected:
-    private:
-        NavigationCoordinator* _navigationCoordinator;
 };
 
 #endif // COMMUNICATIONMANAGER_H

@@ -10,14 +10,8 @@
 
 using namespace std;
 
-int main(int argc, char* argv[])
+void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigationCoordinator, CommunicationManager* communicationManager)
 {
-    if (argc != 3)
-    {
-        mvprintw(0, 0, "Usage: <host> <port>\n");
-        return 1;
-    }
-
     WINDOW *w = initscr();
     cbreak();
     nodelay(w, TRUE);
@@ -25,27 +19,76 @@ int main(int argc, char* argv[])
     keypad(stdscr, TRUE);
     noecho();
 
-    NavigationCoordinator navigationCoordinator;
-    navigationCoordinator.Start();
-
-    CommunicationManager communicationManager(&navigationCoordinator);
-    communicationManager.Start(argv[1], argv[2]);
-
-    InputProcessor inputProcessor;
-
     int ch;
 
-    while(true) {
+    while(true)
+    {
         ch = getch();
 
-        DIRECTION input = inputProcessor.ProcessInput(ch);
+        DIRECTION input = inputProcessor->ProcessInput(ch);
 
         if(input != DIRECTION::UNKNOWN)
         {
-            navigationCoordinator.UpdateNavigationParameters(input);
+            //Directly control robot
+            navigationCoordinator->UpdateNavigationParameters(input);
+            navigationCoordinator->ProcessUpdate();
         }
+    }
+}
 
-        navigationCoordinator.ProcessUpdate();
+void serverLoop(InputProcessor* inputProcessor, CommunicationManager* communicationManager)
+{
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
+
+    int ch;
+
+    while(true)
+    {
+        ch = getch();
+
+        DIRECTION input = inputProcessor->ProcessInput(ch);
+
+        if(input != DIRECTION::UNKNOWN)
+        {
+            //Send command to robot via network
+            communicationManager->SendMessage(ch);
+        }
+    }
+}
+
+/*
+Usage: <executable> <mode> <host?> <port?>
+*/
+int main(int argc, char* argv[])
+{
+    bool isRobot = argv[1] == "robot";
+
+    CommunicationManager communicationManager;
+    InputProcessor inputProcessor;
+
+    if(isRobot)
+    {
+        /*User is on console of physical robot*/
+        NavigationCoordinator navigationCoordinator;
+        navigationCoordinator.Start();
+
+        /*Start listenining to commands from server*/
+        communicationManager.Connect(argv[1], argv[2], &navigationCoordinator);
+
+        robotLoop(&inputProcessor, &navigationCoordinator, &communicationManager);
+    }
+    else
+    {
+        /*User is controlling the bot from a remote computer.
+        This is done via intermidiate server*/
+        communicationManager.StartListening();
+
+        serverLoop(&inputProcessor, &communicationManager);
     }
 
 	return 0;
