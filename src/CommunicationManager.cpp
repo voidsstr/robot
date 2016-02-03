@@ -26,17 +26,17 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
     for(;;)
     {
         //Read data
-        boost::array<int, 1> buf;
+        int buffer[1];
         boost::system::error_code error;
 
-        size_t len = s.read_some(boost::asio::buffer(buf), error);
+        size_t len = s.read_some(boost::asio::buffer(buffer, sizeof(buffer)), error);
 
         if (error == boost::asio::error::eof)
             break; // Connection closed cleanly by peer.
         else if (error)
             throw boost::system::system_error(error); // Some other error.
 
-        DIRECTION input = inputProcessor->ProcessInput(buf[0]);
+        DIRECTION input = inputProcessor->ProcessInput(buffer[0]);
 
         if(input != DIRECTION::UNKNOWN)
         {
