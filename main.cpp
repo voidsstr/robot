@@ -66,7 +66,7 @@ Usage: <executable> <mode> <host?> <port?>
 */
 int main(int argc, char* argv[])
 {
-    bool isRobot = argv[1] == "robot";
+    bool isRobot = strcmp(argv[1], "robot") == 0;
 
     CommunicationManager communicationManager;
     InputProcessor inputProcessor;
