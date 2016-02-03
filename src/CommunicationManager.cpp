@@ -26,7 +26,15 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
     for(;;)
     {
         //Read data
-        size_t reply_length = boost::asio::read(s, boost::asio::buffer(reply));
+        boost::array<char, 128> buf;
+        boost::system::error_code error;
+
+        size_t len = s.read_some(boost::asio::buffer(buf), error);
+
+        if (error == boost::asio::error::eof)
+            break; // Connection closed cleanly by peer.
+        else if (error)
+            throw boost::system::system_error(error); // Some other error.
 
         navigationCoordinator->UpdateNavigationParameters(DIRECTION::UP);
     }
@@ -34,7 +42,9 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
 
 void CommunicationManager::SendMessage(int message)
 {
-    boost::asio::write(*_socket, boost::asio::buffer("1"));
+    boost::system::error_code ignored_error;
+    boost::asio::write(*_socket, boost::asio::buffer("test\n"),
+        boost::asio::transfer_all(), ignored_error);
 }
 
 void CommunicationManager::Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator)
