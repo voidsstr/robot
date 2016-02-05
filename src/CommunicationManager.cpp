@@ -10,13 +10,14 @@ CommunicationManager::~CommunicationManager()
     //dtor
 }
 
-/*Main communication loop*/
+/*NEXT STEPS:
+1) Split method below up so we have a generic send / recieve message capability in CommunicationManager
+2) Create ClientManager, RelayManager and RobotManager to handle the responsibilities of each program.*/
+
 void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* communicationManager, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
 {
-    boost::asio::io_service io_service;
-
-    tcp::socket s(io_service);
-    tcp::resolver resolver(io_service);
+    tcp::socket s(communicationManager->_service);
+    tcp::resolver resolver(communicationManager->_service);
 
     //Connect to server
     boost::asio::connect(s, resolver.resolve({ipAddress, port}));
@@ -26,7 +27,7 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
     for(;;)
     {
         //Read data
-        int buffer[1];
+        int buffer[2];
         boost::system::error_code error;
 
         size_t len = s.read_some(boost::asio::buffer(buffer, sizeof(buffer)), error);
@@ -59,15 +60,25 @@ void CommunicationManager::Connect(char* ipAddress, char* port, NavigationCoordi
     std::thread(ListenToNetworkCommands, ipAddress, port, this, navigationCoordinator, inputProcessor).detach();
 }
 
-void CommunicationManager::StartListening()
+/*Relay network commands from client to robot*/
+void RelayNetworkCommands(tcp::socket* socket)
 {
-    boost::asio::io_service io_service;
+    std::cout << "Starting to relay commands from client to robot...";
+}
 
-    tcp::acceptor a(io_service, tcp::endpoint(tcp::v4(), 1337));
+void CommunicationManager::StartRelayServer()
+{
+    while(true) //Continuously listen for connection attempts
+    {
+        tcp::acceptor a(_service, tcp::endpoint(tcp::v4(), 1337));
 
-    _socket = new tcp::socket(io_service);
+        tcp::socket* socket = new tcp::socket(_service);
 
-    a.accept(*_socket);
+        a.accept(*socket);
+
+        //Start a thread for this connection to relay network traffic
+        std::thread(RelayNetworkCommands, socket).detach();
+    }
 }
 
 

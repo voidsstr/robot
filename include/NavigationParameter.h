@@ -3,7 +3,18 @@
 
 enum DIRECTION
 {
-    UP,DOWN,LEFT,RIGHT,UNKNOWN
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+    UNKNOWN
+};
+
+enum NetworkCommand
+{
+    REGISTER_CLIENT,
+    REGISTER_ROBOT,
+    NAVIGATE
 };
 
 struct NavigationParameter

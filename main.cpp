@@ -10,8 +10,20 @@
 
 using namespace std;
 
+void setupCurses()
+{
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
+}
+
 void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigationCoordinator, CommunicationManager* communicationManager)
 {
+    setupCurses();
+
     int ch;
 
     while(true)
@@ -29,8 +41,10 @@ void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigation
     }
 }
 
-void serverLoop(InputProcessor* inputProcessor, CommunicationManager* communicationManager)
+void clientLoop(InputProcessor* inputProcessor, CommunicationManager* communicationManager)
 {
+    setupCurses();
+
     int ch;
 
     mvprintw(0, 0, "Enter commands to send to robot...\n");
@@ -49,24 +63,14 @@ void serverLoop(InputProcessor* inputProcessor, CommunicationManager* communicat
     }
 }
 
-void setupInputWindow()
-{
-    WINDOW *w = initscr();
-    cbreak();
-    nodelay(w, TRUE);
-    raw();
-    keypad(stdscr, TRUE);
-    noecho();
-}
-
 /*
 Usage: <executable> <mode> <host?> <port?>
 */
 int main(int argc, char* argv[])
 {
-    setupInputWindow();
-
     bool isRobot = strcmp(argv[1], "robot") == 0;
+    bool isClient = strcmp(argv[1], "client") == 0;
+    bool isRelayServer = strcmp(argv[1], "server") == 0;
 
     CommunicationManager communicationManager;
     InputProcessor inputProcessor;
@@ -82,13 +86,13 @@ int main(int argc, char* argv[])
 
         robotLoop(&inputProcessor, &navigationCoordinator, &communicationManager);
     }
-    else
+    else if(isClient)
     {
-        /*User is controlling the bot from a remote computer.
-        This is done via intermidiate server*/
-        communicationManager.StartListening();
-
-        serverLoop(&inputProcessor, &communicationManager);
+        clientLoop(&inputProcessor, &communicationManager);
+    }
+    else if(isRelayServer)
+    {
+        communicationManager.StartRelayServer();
     }
 
 	return 0;

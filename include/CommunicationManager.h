@@ -21,8 +21,9 @@ class CommunicationManager
         virtual ~CommunicationManager();
 
         void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
-        void StartListening();
+        void StartRelayServer();
         void SendMessage(int message);
+        boost::asio::io_service _service;
     private:
         tcp::socket* _socket;
 };

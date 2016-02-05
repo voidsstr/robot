@@ -47,6 +47,7 @@
 		<Unit filename="include/CommunicationManager.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
+		<Unit filename="include/NavigationParameter.h" />
 		<Unit filename="main.cpp" />
 		<Unit filename="src/CommunicationManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
