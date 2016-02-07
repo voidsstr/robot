@@ -1,11 +1,11 @@
-#include "CommunicationManager.h"
+#include "RobotCommunicationManager.h"
 
-CommunicationManager::CommunicationManager()
+RobotCommunicationManager::RobotCommunicationManager()
 {
 
 }
 
-CommunicationManager::~CommunicationManager()
+RobotCommunicationManager::~RobotCommunicationManager()
 {
     //dtor
 }
@@ -14,13 +14,16 @@ CommunicationManager::~CommunicationManager()
 1) Split method below up so we have a generic send / recieve message capability in CommunicationManager
 2) Create ClientManager, RelayManager and RobotManager to handle the responsibilities of each program.*/
 
-void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* communicationManager, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
+void ListenToNetworkCommands(char* ipAddress, int port, RobotCommunicationManager* communicationManager, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
 {
     tcp::socket s(communicationManager->_service);
     tcp::resolver resolver(communicationManager->_service);
 
+    char portString[4];
+    sprintf(portString,"%d",port);
+
     //Connect to server
-    boost::asio::connect(s, resolver.resolve({ipAddress, port}));
+    boost::asio::connect(s, resolver.resolve({ipAddress, portString}));
 
     char reply[1024];
 
@@ -48,37 +51,16 @@ void ListenToNetworkCommands(char* ipAddress, char* port, CommunicationManager* 
     }
 }
 
-void CommunicationManager::SendMessage(int message)
+void RobotCommunicationManager::SendMessage(int message)
 {
     boost::system::error_code ignored_error;
     boost::asio::write(*_socket, boost::asio::buffer(&message, sizeof(message)),
         boost::asio::transfer_all(), ignored_error);
 }
 
-void CommunicationManager::Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
+void RobotCommunicationManager::ConnectToRelayServer(char* ipAddress, int port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)
 {
     std::thread(ListenToNetworkCommands, ipAddress, port, this, navigationCoordinator, inputProcessor).detach();
-}
-
-/*Relay network commands from client to robot*/
-void RelayNetworkCommands(tcp::socket* socket)
-{
-    std::cout << "Starting to relay commands from client to robot...";
-}
-
-void CommunicationManager::StartRelayServer()
-{
-    while(true) //Continuously listen for connection attempts
-    {
-        tcp::acceptor a(_service, tcp::endpoint(tcp::v4(), 1337));
-
-        tcp::socket* socket = new tcp::socket(_service);
-
-        a.accept(*socket);
-
-        //Start a thread for this connection to relay network traffic
-        std::thread(RelayNetworkCommands, socket).detach();
-    }
 }
 
 

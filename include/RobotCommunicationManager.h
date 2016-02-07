@@ -10,18 +10,19 @@
 #include <curses.h>
 #include <thread>
 #include <stdio.h>
+#include <stdlib.h>
+#include <cstring>
 
 using boost::asio::ip::tcp;
 using namespace boost::asio;
 
-class CommunicationManager
+class RobotCommunicationManager
 {
     public:
-        CommunicationManager();
-        virtual ~CommunicationManager();
+        RobotCommunicationManager();
+        virtual ~RobotCommunicationManager();
 
-        void Connect(char* ipAddress, char* port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
-        void StartRelayServer();
+        void ConnectToRelayServer(char* ipAddress, int port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
         void SendMessage(int message);
         boost::asio::io_service _service;
     private:

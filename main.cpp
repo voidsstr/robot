@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <iostream>
 #include <string>
 #include <curses.h>
@@ -6,9 +7,15 @@
 #include <softPwm.h>
 
 #include "NavigationCoordinator.h"
-#include "CommunicationManager.h"
+#include "RobotCommunicationManager.h"
+#include "RelayServer.h"
+#include "ClientManager.h"
 
 using namespace std;
+
+int CLIENT_RELAY_LISTEN_PORT = 1337;
+int ROBOT_RELAY_LISTEN_PORT = 1338;
+
 
 void setupCurses()
 {
@@ -20,9 +27,18 @@ void setupCurses()
     noecho();
 }
 
-void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigationCoordinator, CommunicationManager* communicationManager)
+void robotLoop()
 {
     setupCurses();
+
+    InputProcessor inputProcessor;
+
+    RobotCommunicationManager communicationManager;
+    NavigationCoordinator navigationCoordinator;
+    navigationCoordinator.Start();
+
+    /*Start listenining to commands from server*/
+    communicationManager.ConnectToRelayServer("RELAY SERVER DNS", ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
 
     int ch;
 
@@ -30,41 +46,45 @@ void robotLoop(InputProcessor* inputProcessor, NavigationCoordinator* navigation
     {
         ch = getch();
 
-        DIRECTION input = inputProcessor->ProcessInput(ch);
+        DIRECTION input = inputProcessor.ProcessInput(ch);
 
         if(input != DIRECTION::UNKNOWN)
         {
             //Directly control robot
-            navigationCoordinator->UpdateNavigationParameters(input);
-            navigationCoordinator->ProcessUpdate();
+            navigationCoordinator.UpdateNavigationParameters(input);
+            navigationCoordinator.ProcessUpdate();
         }
     }
 }
 
-void clientLoop(InputProcessor* inputProcessor, CommunicationManager* communicationManager)
+void clientLoop()
 {
     setupCurses();
+
+    InputProcessor inputProcessor;
 
     int ch;
 
     mvprintw(0, 0, "Enter commands to send to robot...\n");
 
+    ClientManager client(CLIENT_RELAY_LISTEN_PORT);
+
     while(true)
     {
         ch = getch();
 
-        DIRECTION input = inputProcessor->ProcessInput(ch);
+        DIRECTION input = inputProcessor.ProcessInput(ch);
 
         if(input != DIRECTION::UNKNOWN)
         {
             //Send command to robot via network
-            communicationManager->SendMessage(ch);
+            client.SendMessage(ch);
         }
     }
 }
 
 /*
-Usage: <executable> <mode> <host?> <port?>
+Usage: <executable> <mode>
 */
 int main(int argc, char* argv[])
 {
@@ -72,27 +92,20 @@ int main(int argc, char* argv[])
     bool isClient = strcmp(argv[1], "client") == 0;
     bool isRelayServer = strcmp(argv[1], "server") == 0;
 
-    CommunicationManager communicationManager;
-    InputProcessor inputProcessor;
-
     if(isRobot)
     {
-        /*User is on console of physical robot*/
-        NavigationCoordinator navigationCoordinator;
-        navigationCoordinator.Start();
-
-        /*Start listenining to commands from server*/
-        communicationManager.Connect(argv[2], argv[3], &navigationCoordinator, &inputProcessor);
-
-        robotLoop(&inputProcessor, &navigationCoordinator, &communicationManager);
+        robotLoop();
     }
     else if(isClient)
     {
-        clientLoop(&inputProcessor, &communicationManager);
+        //TODO: implement client loop compatible with relay server
+        clientLoop();
     }
     else if(isRelayServer)
     {
-        communicationManager.StartRelayServer();
+        //TODO: test recieving of data at relay server
+        RelayServer relayServer(CLIENT_RELAY_LISTEN_PORT, ROBOT_RELAY_LISTEN_PORT);
+        relayServer.Start();
     }
 
 	return 0;

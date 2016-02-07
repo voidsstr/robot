@@ -17,11 +17,4 @@ enum NetworkCommand
     NAVIGATE
 };
 
-struct NavigationParameter
-{
-    DIRECTION Direction;
-};
-
-
-
 #endif // NAVIGATIONPARAMETER_H
