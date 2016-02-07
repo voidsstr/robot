@@ -28,6 +28,8 @@ class RobotConnection : public boost::enable_shared_from_this<RobotConnection>
 
         void start()
         {
+            //TODO: add code to relay / push commands from client to robot
+
             std::cout << "Connection recieved from robot...\n";
             /*message_[0] = 123;
             message_[1] = 456;

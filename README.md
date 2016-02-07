@@ -10,9 +10,43 @@ Overall approach:
 
 Code design:
 
-CommunicationManager: handles robot communication with relay server via TCP
+ClientManager: sends UDP commands to robot via relay server
 RelayServer: accepts TCP connection from robot and uses to relay any commands recieved via UDP
+RobotCommunicationManager: handles robot communication with relay server via TCP
 
+FLOW OF DATA FOR NAVIGATION REQUEST:
 
-
+-----------------
+-               -
+- ClientManager - (Client Machine)
+-               -
+-----------------
+        |
+        V
+-----------------
+-               -
+-  RelayServer  - (Relay Server)
+-               -
+-----------------
+        |
+        V
+-----------------------------
+-                           -
+- RobotCommunicationManager - (Robot)
+-                           -
+-----------------------------
+        |
+        V
+---------------------------
+-                         -
+-  NavigationCoordinator  - (Robot)
+-                         -
+---------------------------
+        |
+        V
+-----------------
+-               -
+-    Arduino    - (Robot)
+-               -
+-----------------
 

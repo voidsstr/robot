@@ -47,18 +47,18 @@
 		</Compiler>
 		<Unit filename="README.md" />
 		<Unit filename="include/ClientManager.h" />
-		<Unit filename="include/CommunicationManager.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
 		<Unit filename="include/NavigationParameter.h" />
 		<Unit filename="include/RelayServer.h" />
+		<Unit filename="include/RobotCommunicationManager.h" />
 		<Unit filename="include/RobotConnection.h" />
 		<Unit filename="main.cpp" />
 		<Unit filename="src/ClientManager.cpp" />
-		<Unit filename="src/CommunicationManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />
 		<Unit filename="src/RelayServer.cpp" />
+		<Unit filename="src/RobotCommunicationManager.cpp" />
 		<Unit filename="src/RobotConnection.cpp" />
 		<Extensions>
 			<code_completion />
