@@ -57,7 +57,7 @@ void robotLoop()
     }
 }
 
-void clientLoop()
+void clientLoop(char* ipAddress)
 {
     setupCurses();
 
@@ -67,7 +67,7 @@ void clientLoop()
 
     mvprintw(0, 0, "Enter commands to send to robot...\n");
 
-    ClientManager client(CLIENT_RELAY_LISTEN_PORT);
+    ClientManager client(ipAddress, CLIENT_RELAY_LISTEN_PORT);
 
     while(true)
     {
@@ -77,8 +77,9 @@ void clientLoop()
 
         if(input != DIRECTION::UNKNOWN)
         {
+            int message[] = { ch };
             //Send command to robot via network
-            client.SendMessage(ch);
+            client.SendMessage(message);
         }
     }
 }
@@ -99,7 +100,7 @@ int main(int argc, char* argv[])
     else if(isClient)
     {
         //TODO: implement client loop compatible with relay server
-        clientLoop();
+        clientLoop(argv[2]);
     }
     else if(isRelayServer)
     {
