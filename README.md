@@ -50,3 +50,16 @@ FLOW OF DATA FOR NAVIGATION REQUEST:
 -               -
 -----------------
 
+Installing Dependencies:
+sudo apt-get install libncurses-dev
+
+git clone git://git.drogon.net/wiringPi
+cd wiringPi
+git pull origin
+./build
+
+sudo apt-get install libboost-all-dev
+
+Git commands:
+git commit -m "commit message"
+
