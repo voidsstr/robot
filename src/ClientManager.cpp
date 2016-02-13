@@ -22,7 +22,7 @@ ClientManager::~ClientManager()
     //dtor
 }
 
-void ClientManager::SendMessage(int* message)
+void ClientManager::SendMessage(int message[2])
 {
     _socket->send_to(boost::asio::buffer(message, sizeof(message)), _relayServerEndpoint);
 }

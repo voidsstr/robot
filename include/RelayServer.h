@@ -23,6 +23,7 @@ class RelayServer
         void Start();
     protected:
     private:
+        int _data[2];
         udp::socket* _clientSocket;
         udp::endpoint _clientEndpoint;
 

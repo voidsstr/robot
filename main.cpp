@@ -77,7 +77,7 @@ void clientLoop(char* ipAddress)
 
         if(input != DIRECTION::UNKNOWN)
         {
-            int message[] = { ch };
+            int message[2] = { 1, ch };
             //Send command to robot via network
             client.SendMessage(message);
         }

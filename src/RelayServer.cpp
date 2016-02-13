@@ -19,15 +19,14 @@ RelayServer::~RelayServer()
 
 void RelayServer::ReceiveClientMessages()
 {
-    int buffer[2];
-
     _clientSocket->async_receive_from(
-        boost::asio::buffer(buffer, sizeof(buffer)), _clientEndpoint,
+        boost::asio::buffer(_data, sizeof(_data)), _clientEndpoint,
         [this](boost::system::error_code ec, std::size_t bytes_recvd)
         {
             if (!ec && bytes_recvd > 0)
             {
                 std::cout << "Recieved data!\n";
+                RelayMessageToRobot();
                 ReceiveClientMessages();
             }
             else
@@ -39,6 +38,10 @@ void RelayServer::ReceiveClientMessages()
 
 void RelayServer::RelayMessageToRobot()
 {
+    std::cout << "Recieved message from client: \n";
+    std::cout << _data[0] << "\n";
+    std::cout << _data[1] << "\n";
+
     /*_socket.async_send_to(
         boost::asio::buffer(_data, length), __clientEndpoint,
         [this](boost::system::error_code, std::size_t)
