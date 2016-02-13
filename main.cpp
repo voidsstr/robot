@@ -27,7 +27,7 @@ void setupCurses()
     noecho();
 }
 
-void robotLoop()
+void robotLoop(char* ipAddress)
 {
     setupCurses();
 
@@ -38,7 +38,7 @@ void robotLoop()
     navigationCoordinator.Start();
 
     /*Start listenining to commands from server*/
-    communicationManager.ConnectToRelayServer("RELAY SERVER DNS", ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
+    communicationManager.ConnectToRelayServer(ipAddress, ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
 
     int ch;
 
@@ -77,7 +77,7 @@ void clientLoop(char* ipAddress)
 
         if(input != DIRECTION::UNKNOWN)
         {
-            int message[] = { ch };
+            int message[2] = { 1, ch };
             //Send command to robot via network
             client.SendMessage(message);
         }
@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
 
     if(isRobot)
     {
-        robotLoop();
+        robotLoop(argv[2]);
     }
     else if(isClient)
     {

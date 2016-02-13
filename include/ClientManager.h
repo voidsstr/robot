@@ -11,7 +11,7 @@ class ClientManager
         ClientManager(char* ipAddress, int port);
         virtual ~ClientManager();
 
-        void SendMessage(int* message);
+        void SendMessage(int message[2]);
     protected:
     private:
         char* _ipAddress;

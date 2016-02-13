@@ -2,7 +2,7 @@
 #define INPUTPROCESSOR_H
 
 #include <curses.h>
-
+#include <stdexcept>
 #include "NavigationParameter.h"
 
 class InputProcessor

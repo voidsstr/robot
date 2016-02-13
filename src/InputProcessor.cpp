@@ -24,6 +24,9 @@ DIRECTION InputProcessor::ProcessInput(int key)
     else if(key == 261) {
         return DIRECTION::RIGHT;
     }
+    else if(key == 113) {
+        throw std::invalid_argument("Quit!");
+    }
 
     return DIRECTION::UNKNOWN;
 }
