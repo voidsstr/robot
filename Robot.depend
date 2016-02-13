@@ -190,3 +190,81 @@
 1455331811 source:/home/mike/dev/robot/src/RelayServer.cpp
 	"RelayServer.h"
 
+1455333463 source:/home/pi/dev/robot/main.cpp
+	<stdio.h>
+	<stdlib.h>
+	<iostream>
+	<string>
+	<curses.h>
+	<wiringPi.h>
+	<softPwm.h>
+	"NavigationCoordinator.h"
+	"RobotCommunicationManager.h"
+	"RelayServer.h"
+	"ClientManager.h"
+
+1455327611 /home/pi/dev/robot/include/NavigationCoordinator.h
+	<wiringPi.h>
+	<stdio.h>
+	<stdlib.h>
+	<mutex>
+	<stack>
+	"InputProcessor.h"
+	"NavigationParameter.h"
+
+1455333463 /home/pi/dev/robot/include/InputProcessor.h
+	<curses.h>
+	<stdexcept>
+	"NavigationParameter.h"
+
+1455327611 /home/pi/dev/robot/include/NavigationParameter.h
+
+1455327611 /home/pi/dev/robot/include/RobotCommunicationManager.h
+	"NavigationCoordinator.h"
+	<iostream>
+	<boost/array.hpp>
+	<boost/asio.hpp>
+	<string>
+	<curses.h>
+	<thread>
+	<stdio.h>
+	<stdlib.h>
+	<cstring>
+
+1455390675 /home/pi/dev/robot/include/RelayServer.h
+	<cstdlib>
+	<iostream>
+	<boost/asio.hpp>
+	<boost/array.hpp>
+	<boost/bind.hpp>
+	<boost/shared_ptr.hpp>
+	<boost/enable_shared_from_this.hpp>
+	<RobotConnection.h>
+
+1455391002 /home/pi/dev/robot/include/RobotConnection.h
+	<boost/array.hpp>
+	<boost/bind.hpp>
+	<boost/shared_ptr.hpp>
+	<boost/enable_shared_from_this.hpp>
+	<boost/asio.hpp>
+
+1455333463 /home/pi/dev/robot/include/ClientManager.h
+	<boost/asio.hpp>
+
+1455333463 source:/home/pi/dev/robot/src/ClientManager.cpp
+	"ClientManager.h"
+
+1455333463 source:/home/pi/dev/robot/src/InputProcessor.cpp
+	"InputProcessor.h"
+
+1455327611 source:/home/pi/dev/robot/src/NavigationCoordinator.cpp
+	"NavigationCoordinator.h"
+
+1455388890 source:/home/pi/dev/robot/src/RelayServer.cpp
+	"RelayServer.h"
+
+1455327611 source:/home/pi/dev/robot/src/RobotCommunicationManager.cpp
+	"RobotCommunicationManager.h"
+
+1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
+

@@ -42,22 +42,19 @@ void RelayServer::RelayMessageToRobot()
     std::cout << _data[0] << "\n";
     std::cout << _data[1] << "\n";
 
-    /*_socket.async_send_to(
-        boost::asio::buffer(_data, length), __clientEndpoint,
-        [this](boost::system::error_code, std::size_t)
-        {
-            Receive();
-        });*/
+    //_connections.at(0).send_message(_data);
 }
 
 void RelayServer::RecieveRobotConnections()
 {
-    RobotConnection::pointer new_connection = RobotConnection::create(_acceptor->get_io_service());
+    RobotConnection* new_connection = new RobotConnection(_acceptor->get_io_service());
+
+    _connections.push_back(new_connection);
 
     _acceptor->async_accept(new_connection->socket(), boost::bind(&RelayServer::HandleAccept, this, new_connection, boost::asio::placeholders::error));
 }
 
-void RelayServer::HandleAccept(RobotConnection::pointer new_connection, const boost::system::error_code& error)
+void RelayServer::HandleAccept(RobotConnection* new_connection, const boost::system::error_code& error)
 {
     if (!error)
     {

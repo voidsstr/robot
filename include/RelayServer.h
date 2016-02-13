@@ -26,6 +26,7 @@ class RelayServer
         int _data[2];
         udp::socket* _clientSocket;
         udp::endpoint _clientEndpoint;
+        std::vector<RobotConnection*> _connections;
 
         tcp::socket* _robotSocket;
 
@@ -36,7 +37,7 @@ class RelayServer
         void ReceiveClientMessages();
 
         void RecieveRobotConnections();
-        void HandleAccept(RobotConnection::pointer new_connection, const boost::system::error_code& error);
+        void HandleAccept(RobotConnection* new_connection, const boost::system::error_code& error);
 };
 
 #endif // RELAYSERVER_H
