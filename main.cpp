@@ -10,6 +10,7 @@
 #include "RobotCommunicationManager.h"
 #include "RelayServer.h"
 #include "ClientManager.h"
+#include "LidarManager.h"
 
 using namespace std;
 
@@ -84,6 +85,12 @@ void clientLoop(char* ipAddress)
     }
 }
 
+void lidarLoop()
+{
+    LidarManager manager;
+    manager.InitiateDataCollection();
+}
+
 /*
 Usage: <executable> <mode>
 */
@@ -92,6 +99,7 @@ int main(int argc, char* argv[])
     bool isRobot = strcmp(argv[1], "robot") == 0;
     bool isClient = strcmp(argv[1], "client") == 0;
     bool isRelayServer = strcmp(argv[1], "server") == 0;
+    bool isLidar = strcmp(argv[1], "lidar") == 0;
 
     if(isRobot)
     {
@@ -107,6 +115,10 @@ int main(int argc, char* argv[])
         //TODO: test recieving of data at relay server
         RelayServer relayServer(CLIENT_RELAY_LISTEN_PORT, ROBOT_RELAY_LISTEN_PORT);
         relayServer.Start();
+    }
+    else if(isLidar)
+    {
+        lidarLoop();
     }
 
 	return 0;
