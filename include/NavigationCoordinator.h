@@ -27,6 +27,7 @@ class NavigationCoordinator
         void Start();
         void UpdateNavigationParameters(DIRECTION navigationParameter);
         void ProcessUpdate();
+        void StopRobot();
     protected:
     private:
         std::stack<DIRECTION> _pendingUpdates;
@@ -35,7 +36,6 @@ class NavigationCoordinator
         void RotateLeft();
         void RotateRight();
         void NotifyPin(int pin);
-        void Stop();
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

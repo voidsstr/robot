@@ -54,37 +54,31 @@ bool LidarManager::InitiateDataCollection()
     return returnValue;
 }
 
-void LidarManager::CheckProximity()
+bool LidarManager::IsObjectAhead(int thresholdInches)
 {
     u_result op_result;
 
-    // fetech result and print it out...
-    while (1) {
-        rplidar_response_measurement_node_t nodes[360*2];
-        size_t   count = _countof(nodes);
+    rplidar_response_measurement_node_t nodes[360*2];
+    size_t   count = _countof(nodes);
 
-        op_result = _driver->grabScanData(nodes, count);
+    op_result = _driver->grabScanData(nodes, count);
 
-        if (IS_OK(op_result)) {
-            _driver->ascendScanData(nodes, count);
+    if (IS_OK(op_result)) {
+        _driver->ascendScanData(nodes, count);
 
-            for (int pos = 0; pos < (int)count ; ++pos) {
-                float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
-                float distance = nodes[pos].distance_q2/4.0f;
-                float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+        for (int pos = 0; pos < (int)count ; ++pos) {
+            float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+            float distance = nodes[pos].distance_q2/4.0f;
+            float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
 
-                if(IsAheadOfVehicle(angle))
-                {
-                    printf("%s theta: %f Dist: %f Q: %f \n",
-                        (nodes[pos].sync_quality & RPLIDAR_RESP_MEASUREMENT_SYNCBIT) ?"S ":"  ",
-                        angle,
-                        distance,
-                        quality);
-                }
+            if(IsAheadOfVehicle(angle) && distance <= (thresholdInches * 25))
+            {
+                return true;
             }
         }
-
     }
+
+    return false;
 }
 
 bool LidarManager::IsAheadOfVehicle(float angle)

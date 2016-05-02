@@ -17,7 +17,7 @@ class LidarManager
         LidarManager();
         virtual ~LidarManager();
         bool InitiateDataCollection();
-        void CheckProximity();
+        bool IsObjectAhead(int thresholdInches);
     protected:
     private:
         bool CheckRPLIDARHealth(RPlidarDriver * drv);

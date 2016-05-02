@@ -49,7 +49,7 @@ void NavigationCoordinator::RotateLeft()
     NotifyPin(RotateLeftPin);
 }
 
-void NavigationCoordinator::Stop()
+void NavigationCoordinator::StopRobot()
 {
     mvprintw(0, 0, "Stopped\n");
 

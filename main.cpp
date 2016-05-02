@@ -38,6 +38,9 @@ void robotLoop(char* ipAddress)
     NavigationCoordinator navigationCoordinator;
     navigationCoordinator.Start();
 
+    LidarManager lidarManager;
+    lidarManager.InitiateDataCollection();
+
     /*Start listenining to commands from server*/
     communicationManager.ConnectToRelayServer(ipAddress, ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
 
@@ -49,11 +52,18 @@ void robotLoop(char* ipAddress)
 
         DIRECTION input = inputProcessor.ProcessInput(ch);
 
-        if(input != DIRECTION::UNKNOWN)
+        if(lidarManager.IsObjectAhead(8))
         {
-            //Directly control robot
-            navigationCoordinator.UpdateNavigationParameters(input);
-            navigationCoordinator.ProcessUpdate();
+            navigationCoordinator.StopRobot();
+        }
+        else
+        {
+            if(input != DIRECTION::UNKNOWN)
+            {
+                //Directly control robot
+                navigationCoordinator.UpdateNavigationParameters(input);
+                navigationCoordinator.ProcessUpdate();
+            }
         }
     }
 }
@@ -85,13 +95,6 @@ void clientLoop(char* ipAddress)
     }
 }
 
-void lidarLoop()
-{
-    LidarManager manager;
-    manager.InitiateDataCollection();
-    manager.CheckProximity();
-}
-
 /*
 Usage: <executable> <mode>
 */
@@ -100,7 +103,6 @@ int main(int argc, char* argv[])
     bool isRobot = strcmp(argv[1], "robot") == 0;
     bool isClient = strcmp(argv[1], "client") == 0;
     bool isRelayServer = strcmp(argv[1], "server") == 0;
-    bool isLidar = strcmp(argv[1], "lidar") == 0;
 
     if(isRobot)
     {
@@ -116,10 +118,6 @@ int main(int argc, char* argv[])
         //TODO: test recieving of data at relay server
         RelayServer relayServer(CLIENT_RELAY_LISTEN_PORT, ROBOT_RELAY_LISTEN_PORT);
         relayServer.Start();
-    }
-    else if(isLidar)
-    {
-        lidarLoop();
     }
 
 	return 0;
