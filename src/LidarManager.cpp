@@ -71,7 +71,7 @@ bool LidarManager::IsObjectAhead(int thresholdInches)
             float distance = nodes[pos].distance_q2/4.0f;
             float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
 
-            if(IsAheadOfVehicle(angle) && distance <= (thresholdInches * 25))
+            if(IsAheadOfVehicle(angle) && distance <= (thresholdInches * 25.4))
             {
                 return true;
             }
