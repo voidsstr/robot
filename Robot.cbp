@@ -12,18 +12,21 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="client 127.0.0.1" />
+				<Option parameters="lidar" />
 				<Compiler>
 					<Add option="-g" />
 					<Add option="-std=gnu++0x" />
 					<Add directory="include" />
 					<Add directory="src" />
+					<Add directory="dependencies/include" />
 				</Compiler>
 				<Linker>
 					<Add library="wiringPi" />
 					<Add library="ncurses" />
 					<Add library="boost_system" />
 					<Add library="pthread" />
+					<Add library="rplidar_sdk" />
+					<Add directory="dependencies/lib" />
 				</Linker>
 			</Target>
 			<Target title="Release">
@@ -48,6 +51,7 @@
 		<Unit filename="README.md" />
 		<Unit filename="include/ClientManager.h" />
 		<Unit filename="include/InputProcessor.h" />
+		<Unit filename="include/LidarManager.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
 		<Unit filename="include/NavigationParameter.h" />
 		<Unit filename="include/RelayServer.h" />
@@ -56,6 +60,7 @@
 		<Unit filename="main.cpp" />
 		<Unit filename="src/ClientManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
+		<Unit filename="src/LidarManager.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />
 		<Unit filename="src/RelayServer.cpp" />
 		<Unit filename="src/RobotCommunicationManager.cpp" />

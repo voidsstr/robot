@@ -1,8 +1,9 @@
 #include <Servo.h> // include the Servo library
 
-// create the servo objects
 int isAccellerating = 0;
 int isDecellerating = 0;
+
+int isStopping = 0;
 
 int isRotatingLeft = 0;
 int isRotatingRight = 0;
@@ -12,6 +13,8 @@ int decelleratePin = 6;
 
 int rotateLeftPin = 4;
 int rotateRightPin = 5;
+
+int stopPin = 3;
 
 int rightMotorLevel = 90;
 int leftMotorLevel = 90;
@@ -40,28 +43,42 @@ void loop()
   
   isRotatingLeft = digitalRead(rotateLeftPin);
   isRotatingRight = digitalRead(rotateRightPin);
+  isStopping = digitalRead(stopPin);
   
-  if(isAccellerating == HIGH)
+  if(isStopping)
   {
-    accellerate(rightMotor);
-    accellerate(leftMotor);
+    
   }
-  else if(isDecellerating == HIGH)
+  else
   {
-    decellerate(rightMotor);
-    decellerate(leftMotor);
+    if(isAccellerating == HIGH)
+    {
+      accellerate(rightMotor);
+      accellerate(leftMotor);
+    }
+    else if(isDecellerating == HIGH)
+    {
+      decellerate(rightMotor);
+      decellerate(leftMotor);
+    }
+    
+    if(isRotatingLeft == HIGH)
+    {
+      accellerate(rightMotor);
+      decellerate(leftMotor);
+    }
+    else if(isRotatingRight == HIGH)
+    {
+      accellerate(leftMotor);
+      decellerate(rightMotor);
+    }
   }
-  
-  if(isRotatingLeft == HIGH)
-  {
-    accellerate(rightMotor);
-    decellerate(leftMotor);
-  }
-  else if(isRotatingRight == HIGH)
-  {
-    accellerate(leftMotor);
-    decellerate(rightMotor);
-  }
+}
+
+void stop()
+{
+  leftMotor->write(90);
+  rightMotor->write(90);
 }
 
 void accellerate(Servo* servo)

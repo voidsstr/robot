@@ -8,13 +8,15 @@ LidarManager::LidarManager()
 LidarManager::~LidarManager()
 {
     //dtor
+    RPlidarDriver::DisposeDriver(_driver);
 }
 
-void LidarManager::InitiateDataCollection()
+bool LidarManager::InitiateDataCollection()
 {
+    bool returnValue = true;
+
     const char * opt_com_path = NULL;
     _u32         opt_com_baudrate = 115200;
-    u_result     op_result;
 
     if (!opt_com_path) {
 #ifdef _WIN32
@@ -26,37 +28,45 @@ void LidarManager::InitiateDataCollection()
     }
 
     // create the driver instance
-    RPlidarDriver * drv = RPlidarDriver::CreateDriver(RPlidarDriver::DRIVER_TYPE_SERIALPORT);
+    _driver = RPlidarDriver::CreateDriver(RPlidarDriver::DRIVER_TYPE_SERIALPORT);
 
-    if (!drv) {
+    if (!_driver) {
         fprintf(stderr, "insufficent memory, exit\n");
-        exit(-2);
+        returnValue = false;
     }
 
     // make connection...
-    if (IS_FAIL(drv->connect(opt_com_path, opt_com_baudrate))) {
+    if (IS_FAIL(_driver->connect(opt_com_path, opt_com_baudrate))) {
         fprintf(stderr, "Error, cannot bind to the specified serial port %s.\n"
             , opt_com_path);
-        goto on_finished;
+
+        returnValue = false;
     }
 
     // check health...
-    if (!CheckRPLIDARHealth(drv)) {
-        goto on_finished;
+    if (!CheckRPLIDARHealth(_driver)) {
+        returnValue = false;
     }
 
     // start scan...
-    drv->startScan();
+    _driver->startScan();
+
+    return returnValue;
+}
+
+void LidarManager::CheckProximity()
+{
+    u_result op_result;
 
     // fetech result and print it out...
     while (1) {
         rplidar_response_measurement_node_t nodes[360*2];
         size_t   count = _countof(nodes);
 
-        op_result = drv->grabScanData(nodes, count);
+        op_result = _driver->grabScanData(nodes, count);
 
         if (IS_OK(op_result)) {
-            drv->ascendScanData(nodes, count);
+            _driver->ascendScanData(nodes, count);
 
             for (int pos = 0; pos < (int)count ; ++pos) {
                 float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
@@ -75,9 +85,6 @@ void LidarManager::InitiateDataCollection()
         }
 
     }
-
-    on_finished:
-        RPlidarDriver::DisposeDriver(drv);
 }
 
 bool LidarManager::IsAheadOfVehicle(float angle)

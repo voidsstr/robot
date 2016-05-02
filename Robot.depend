@@ -99,7 +99,7 @@
 	<thread>
 	<stdio.h>
 
-1462127055 source:/home/mike/dev/robot/main.cpp
+1462227440 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -113,7 +113,7 @@
 	"ClientManager.h"
 	"LidarManager.h"
 
-1454771159 /home/mike/dev/robot/include/NavigationCoordinator.h
+1462228950 /home/mike/dev/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
 	<stdio.h>
 	<stdlib.h>
@@ -160,7 +160,7 @@
 	<stdlib.h>
 	<cstring>
 
-1455331811 /home/mike/dev/robot/include/RelayServer.h
+1462133788 /home/mike/dev/robot/include/RelayServer.h
 	<cstdlib>
 	<iostream>
 	<boost/asio.hpp>
@@ -170,7 +170,7 @@
 	<boost/enable_shared_from_this.hpp>
 	<RobotConnection.h>
 
-1454818931 /home/mike/dev/robot/include/RobotConnection.h
+1462133788 /home/mike/dev/robot/include/RobotConnection.h
 	<boost/array.hpp>
 	<boost/bind.hpp>
 	<boost/shared_ptr.hpp>
@@ -188,10 +188,11 @@
 
 1454802461 source:/home/mike/dev/robot/src/RobotConnection.cpp
 
-1455331811 source:/home/mike/dev/robot/src/RelayServer.cpp
+1462133788 source:/home/mike/dev/robot/src/RelayServer.cpp
 	"RelayServer.h"
 
-<<<<<<< Updated upstream
+1455331811 ated upstream
+
 1455333463 source:/home/pi/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
@@ -269,29 +270,30 @@
 	"RobotCommunicationManager.h"
 
 1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
-=======
-1462132995 /home/mike/dev/robot/include/LidarManager.h
+
+1462227990 /home/mike/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
 
-1394263700 /home/mike/dev/robot/dependencies/include/rplidar.h
+1462134170 /home/mike/dev/robot/dependencies/include/rplidar.h
 	"rptypes.h"
 	"rplidar_protocol.h"
 	"rplidar_cmd.h"
 	"rplidar_driver.h"
 
-1394263700 /home/mike/dev/robot/dependencies/include/rptypes.h
+1462134170 /home/mike/dev/robot/dependencies/include/rptypes.h
 	<stdint.h>
 
-1406268348 /home/mike/dev/robot/dependencies/include/rplidar_protocol.h
+1462134170 /home/mike/dev/robot/dependencies/include/rplidar_protocol.h
 
-1406268348 /home/mike/dev/robot/dependencies/include/rplidar_cmd.h
+1462134170 /home/mike/dev/robot/dependencies/include/rplidar_cmd.h
 	"rplidar_protocol.h"
 
-1406268348 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
+1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1462133633 source:/home/mike/dev/robot/src/LidarManager.cpp
+1462227990 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
->>>>>>> Stashed changes
+
+1462133633 shed changes
 

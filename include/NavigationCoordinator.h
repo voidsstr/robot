@@ -10,7 +10,12 @@
 #include "InputProcessor.h"
 #include "NavigationParameter.h"
 
-#define RightWheelPin 1
+#define AcceleratePin 1
+#define DecelleratePin 0
+#define RotateRightPin 3
+#define RotateLeftPin 4
+#define StopPin 5
+
 #define LeftWheelPin 0
 #define MOVEMENT_INCREMENT 1
 
@@ -29,6 +34,8 @@ class NavigationCoordinator
         void Decelerate();
         void RotateLeft();
         void RotateRight();
+        void NotifyPin(int pin);
+        void Stop();
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

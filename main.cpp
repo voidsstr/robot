@@ -89,6 +89,7 @@ void lidarLoop()
 {
     LidarManager manager;
     manager.InitiateDataCollection();
+    manager.CheckProximity();
 }
 
 /*

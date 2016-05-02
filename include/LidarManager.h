@@ -16,11 +16,13 @@ class LidarManager
     public:
         LidarManager();
         virtual ~LidarManager();
-        void InitiateDataCollection();
+        bool InitiateDataCollection();
+        void CheckProximity();
     protected:
     private:
         bool CheckRPLIDARHealth(RPlidarDriver * drv);
         bool IsAheadOfVehicle(float angle);
+        RPlidarDriver* _driver;
 };
 
 #endif // LIDARMANAGER_H

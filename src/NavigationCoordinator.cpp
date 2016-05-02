@@ -13,6 +13,7 @@ NavigationCoordinator::~NavigationCoordinator()
 
     digitalWrite(3, LOW);
     digitalWrite(4, LOW);
+    digitalWrite(5, LOW);
 }
 
 void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParameter)
@@ -24,36 +25,42 @@ void NavigationCoordinator::Accelerate()
 {
     mvprintw(0, 0, "Accellerated\n");
 
-    digitalWrite(1, HIGH);
-    delay(10);
-    digitalWrite(1, LOW);
+    NotifyPin(AcceleratePin);
 }
 
 void NavigationCoordinator::Decelerate()
 {
     mvprintw(0, 0, "Decelerated\n");
 
-    digitalWrite(0, HIGH);
-    delay(10);
-    digitalWrite(0, LOW);
+    NotifyPin(DecelleratePin);
 }
 
 void NavigationCoordinator::RotateRight()
 {
     mvprintw(0, 0, "Rotated right\n");
 
-    digitalWrite(3, HIGH);
-    delay(10);
-    digitalWrite(3, LOW);
+    NotifyPin(RotateRightPin);
 }
 
 void NavigationCoordinator::RotateLeft()
 {
     mvprintw(0, 0, "Rotated left\n");
 
-    digitalWrite(4, HIGH);
+    NotifyPin(RotateLeftPin);
+}
+
+void NavigationCoordinator::Stop()
+{
+    mvprintw(0, 0, "Stopped\n");
+
+    NotifyPin(StopPin);
+}
+
+void NavigationCoordinator::NotifyPin(int pin)
+{
+    digitalWrite(pin, HIGH);
     delay(10);
-    digitalWrite(4, LOW);
+    digitalWrite(pin, LOW);
 }
 
 void NavigationCoordinator::ProcessUpdate()
