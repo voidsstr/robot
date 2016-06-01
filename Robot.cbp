@@ -12,7 +12,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="lidar" />
+				<Option parameters="robot" />
 				<Compiler>
 					<Add option="-g" />
 					<Add option="-std=gnu++0x" />
@@ -26,6 +26,7 @@
 					<Add library="boost_system" />
 					<Add library="pthread" />
 					<Add library="rplidar_sdk" />
+					<Add library="rt" />
 					<Add directory="dependencies/lib" />
 				</Linker>
 			</Target>

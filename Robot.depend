@@ -20,23 +20,27 @@
 	<stdio.h>
 	"InputProcessor.h"
 
-1454472212 source:/home/pi/git/robot/main.cpp
+1464749065 source:/home/pi/git/robot/main.cpp
 	<stdio.h>
+	<stdlib.h>
 	<iostream>
 	<string>
 	<curses.h>
 	<wiringPi.h>
 	<softPwm.h>
 	"NavigationCoordinator.h"
-	"CommunicationManager.h"
+	"RobotCommunicationManager.h"
+	"RelayServer.h"
+	"ClientManager.h"
+	"LidarManager.h"
 
-1450024249 source:/home/pi/git/robot/src/InputProcessor.cpp
+1455333178 source:/home/pi/git/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1453552232 source:/home/pi/git/robot/src/NavigationCoordinator.cpp
+1464749017 source:/home/pi/git/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
-1452473684 /home/pi/git/robot/include/NavigationCoordinator.h
+1464745786 /home/pi/git/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
 	<stdio.h>
 	<stdlib.h>
@@ -45,11 +49,12 @@
 	"InputProcessor.h"
 	"NavigationParameter.h"
 
-1450024249 /home/pi/git/robot/include/InputProcessor.h
+1455333178 /home/pi/git/robot/include/InputProcessor.h
 	<curses.h>
+	<stdexcept>
 	"NavigationParameter.h"
 
-1449801881 /home/pi/git/robot/include/NavigationParameter.h
+1455328064 /home/pi/git/robot/include/NavigationParameter.h
 
 1453065480 source:/home/mike/robot/main.cpp
 	<stdio.h>
@@ -296,4 +301,72 @@
 	"LidarManager.h"
 
 1462133633 shed changes
+
+1455328064 /home/pi/git/robot/include/RobotCommunicationManager.h
+	"NavigationCoordinator.h"
+	<iostream>
+	<boost/array.hpp>
+	<boost/asio.hpp>
+	<string>
+	<curses.h>
+	<thread>
+	<stdio.h>
+	<stdlib.h>
+	<cstring>
+
+1462232868 /home/pi/git/robot/include/RelayServer.h
+	<cstdlib>
+	<iostream>
+	<boost/asio.hpp>
+	<boost/array.hpp>
+	<boost/bind.hpp>
+	<boost/shared_ptr.hpp>
+	<boost/enable_shared_from_this.hpp>
+	<RobotConnection.h>
+
+1462232868 /home/pi/git/robot/include/RobotConnection.h
+	<boost/array.hpp>
+	<boost/bind.hpp>
+	<boost/shared_ptr.hpp>
+	<boost/enable_shared_from_this.hpp>
+	<boost/asio.hpp>
+
+1455331614 /home/pi/git/robot/include/ClientManager.h
+	<boost/asio.hpp>
+
+1464748534 /home/pi/git/robot/include/LidarManager.h
+	<stdio.h>
+	<stdlib.h>
+	"rplidar.h"
+	<curses.h>
+
+1462232868 /home/pi/git/robot/dependencies/include/rplidar.h
+	"rptypes.h"
+	"rplidar_protocol.h"
+	"rplidar_cmd.h"
+	"rplidar_driver.h"
+
+1462232868 /home/pi/git/robot/dependencies/include/rptypes.h
+	<stdint.h>
+
+1462232868 /home/pi/git/robot/dependencies/include/rplidar_protocol.h
+
+1462232868 /home/pi/git/robot/dependencies/include/rplidar_cmd.h
+	"rplidar_protocol.h"
+
+1462232868 /home/pi/git/robot/dependencies/include/rplidar_driver.h
+
+1455331568 source:/home/pi/git/robot/src/ClientManager.cpp
+	"ClientManager.h"
+
+1464750458 source:/home/pi/git/robot/src/LidarManager.cpp
+	"LidarManager.h"
+
+1462232869 source:/home/pi/git/robot/src/RelayServer.cpp
+	"RelayServer.h"
+
+1455328064 source:/home/pi/git/robot/src/RobotCommunicationManager.cpp
+	"RobotCommunicationManager.h"
+
+1455328064 source:/home/pi/git/robot/src/RobotConnection.cpp
 

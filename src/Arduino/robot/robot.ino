@@ -14,7 +14,7 @@ int decelleratePin = 6;
 int rotateLeftPin = 4;
 int rotateRightPin = 5;
 
-int stopPin = 3;
+int stopPin = 2;
 
 int rightMotorLevel = 90;
 int leftMotorLevel = 90;
@@ -32,6 +32,7 @@ void setup()
   
   pinMode(rotateLeftPin, INPUT);
   pinMode(rotateRightPin, INPUT);
+  pinMode(stopPin, INPUT);
 }
 
 void loop()
@@ -45,9 +46,9 @@ void loop()
   isRotatingRight = digitalRead(rotateRightPin);
   isStopping = digitalRead(stopPin);
   
-  if(isStopping)
+  if(isStopping == HIGH)
   {
-    
+    stop();
   }
   else
   {

@@ -2,18 +2,28 @@
 
 NavigationCoordinator::NavigationCoordinator()
 {
-
+    mvprintw(0, 0, "Telemetry Activated. No commands recieved.\n");
 }
 
 NavigationCoordinator::~NavigationCoordinator()
 {
     //dtor
-    digitalWrite(0, LOW);
-    digitalWrite(1, LOW);
+    digitalWrite(AcceleratePin, LOW);
+    digitalWrite(DecelleratePin, LOW);
 
-    digitalWrite(3, LOW);
-    digitalWrite(4, LOW);
-    digitalWrite(5, LOW);
+    digitalWrite(RotateRightPin, LOW);
+    digitalWrite(RotateLeftPin, LOW);
+    digitalWrite(StopPin, LOW);
+}
+
+bool NavigationCoordinator::IsMovingBackward()
+{
+    return _navigationCount < 0;
+}
+
+bool NavigationCoordinator::IsMovingForward()
+{
+    return _navigationCount > 0;
 }
 
 void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParameter)
@@ -21,17 +31,22 @@ void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParam
     _pendingUpdates.push(navigationParameter);
 }
 
+void NavigationCoordinator::PrintTelemetry()
+{
+    mvprintw(2, 0, "Speed: %i     ", _navigationCount);
+}
+
 void NavigationCoordinator::Accelerate()
 {
     mvprintw(0, 0, "Accellerated\n");
-
+    _navigationCount++;
     NotifyPin(AcceleratePin);
 }
 
 void NavigationCoordinator::Decelerate()
 {
     mvprintw(0, 0, "Decelerated\n");
-
+    _navigationCount--;
     NotifyPin(DecelleratePin);
 }
 
@@ -51,8 +66,7 @@ void NavigationCoordinator::RotateLeft()
 
 void NavigationCoordinator::StopRobot()
 {
-    mvprintw(0, 0, "Stopped\n");
-
+    _navigationCount = 0;
     NotifyPin(StopPin);
 }
 
@@ -95,10 +109,12 @@ void NavigationCoordinator::Start()
 		printw("setup wiringPi failed !\n");
 	}
     else {
-        pinMode(0, OUTPUT);
-        pinMode(1, OUTPUT);
+        pinMode(AcceleratePin, OUTPUT);
+        pinMode(DecelleratePin, OUTPUT);
 
-        pinMode(3, OUTPUT);
-        pinMode(4, OUTPUT);
+        pinMode(RotateRightPin, OUTPUT);
+        pinMode(RotateLeftPin, OUTPUT);
+
+        pinMode(StopPin, OUTPUT);
     }
 }

@@ -42,17 +42,25 @@ void robotLoop(char* ipAddress)
     lidarManager.InitiateDataCollection();
 
     /*Start listenining to commands from server*/
-    communicationManager.ConnectToRelayServer(ipAddress, ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
+    //communicationManager.ConnectToRelayServer(ipAddress, ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
 
     int ch;
 
     while(true)
     {
+        delay(100);
+
         ch = getch();
 
         DIRECTION input = inputProcessor.ProcessInput(ch);
 
-        if(lidarManager.IsObjectAhead(8))
+        lidarManager.FetchNewScanData();
+
+        float objectAheadDistance = lidarManager.IsObjectAhead(8);
+        float objectBehindDistance = lidarManager.IsObjectBehind(8);
+
+        if((navigationCoordinator.IsMovingForward() && objectAheadDistance > 0)
+                || (navigationCoordinator.IsMovingBackward() && objectBehindDistance > 0))
         {
             navigationCoordinator.StopRobot();
         }
@@ -65,6 +73,8 @@ void robotLoop(char* ipAddress)
                 navigationCoordinator.ProcessUpdate();
             }
         }
+
+        navigationCoordinator.PrintTelemetry();
     }
 }
 

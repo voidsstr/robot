@@ -3,6 +3,7 @@
 LidarManager::LidarManager()
 {
     //ctor
+    _navigationCount = 0;
 }
 
 LidarManager::~LidarManager()
@@ -54,31 +55,83 @@ bool LidarManager::InitiateDataCollection()
     return returnValue;
 }
 
-bool LidarManager::IsObjectAhead(int thresholdInches)
+void LidarManager::FetchNewScanData()
 {
     u_result op_result;
 
-    rplidar_response_measurement_node_t nodes[360*2];
-    size_t   count = _countof(nodes);
+    size_t nodeCount = _countof(_nodes);
 
-    op_result = _driver->grabScanData(nodes, count);
+    op_result = _driver->grabScanData(_nodes, nodeCount);
 
-    if (IS_OK(op_result)) {
-        _driver->ascendScanData(nodes, count);
+    if (IS_OK(op_result))
+    {
+        _driver->ascendScanData(_nodes, nodeCount);
+    }
 
-        for (int pos = 0; pos < (int)count ; ++pos) {
-            float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
-            float distance = nodes[pos].distance_q2/4.0f;
-            float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+}
 
-            if(IsAheadOfVehicle(angle) && distance <= (thresholdInches * 25.4))
-            {
-                return true;
-            }
+float LidarManager::IsObjectAhead(int thresholdInches)
+{
+    size_t nodeCount = _countof(_nodes);
+    float totalDistanceOfQualityPoints = 0.0;
+    float totalQualityPoints = 0.0;
+
+    for (int pos = 0; pos < (int)nodeCount ; ++pos) {
+        float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = _nodes[pos].distance_q2/4.0f;
+        float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+
+        float distanceInches = distance / MM_TO_INCH;
+
+        if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsAheadOfVehicle(angle))
+        {
+            mvprintw(0, 0, "Object detected %f inches ahead vehicle.  ", distanceInches);
+
+            totalDistanceOfQualityPoints += distanceInches;
+            totalQualityPoints++;
         }
     }
 
-    return false;
+    float averageDistance = (totalDistanceOfQualityPoints / totalQualityPoints);
+
+    if(averageDistance <= thresholdInches)
+    {
+        return averageDistance;
+    }
+
+    return 0;
+}
+
+float LidarManager::IsObjectBehind(int thresholdInches)
+{
+    size_t nodeCount = _countof(_nodes);
+    float totalDistanceOfQualityPoints = 0.0;
+    float totalQualityPoints = 0.0;
+
+    for (int pos = 0; pos < (int)nodeCount ; ++pos) {
+        float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = _nodes[pos].distance_q2/4.0f;
+        float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+
+        float distanceInches = distance / MM_TO_INCH;
+
+        if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsBehindVehicle(angle))
+        {
+            mvprintw(1, 0, "Object detected %f inches behind vehicle.  ", distanceInches);
+
+            totalDistanceOfQualityPoints += distanceInches;
+            totalQualityPoints++;
+        }
+    }
+
+    float averageDistance = (totalDistanceOfQualityPoints / totalQualityPoints);
+
+    if(averageDistance <= thresholdInches)
+    {
+        return averageDistance;
+    }
+
+    return 0;
 }
 
 bool LidarManager::IsAheadOfVehicle(float angle)
@@ -86,11 +139,15 @@ bool LidarManager::IsAheadOfVehicle(float angle)
     return angle > 165 && angle < 195;
 }
 
+bool LidarManager::IsBehindVehicle(float angle)
+{
+    return angle > 0 && angle < 45;
+}
+
 bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)
 {
     u_result     op_result;
     rplidar_response_device_health_t healthinfo;
-
 
     op_result = drv->getHealth(healthinfo);
     if (IS_OK(op_result)) { // the macro IS_OK is the preperred way to judge whether the operation is succeed.
@@ -98,7 +155,7 @@ bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)
         if (healthinfo.status == RPLIDAR_STATUS_ERROR) {
             fprintf(stderr, "Error, rplidar internal error detected. Please reboot the device to retry.\n");
             // enable the following code if you want rplidar to be reboot by software
-            // drv->reset();
+            drv->reset();
             return false;
         } else {
             return true;
