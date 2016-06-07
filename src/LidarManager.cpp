@@ -19,7 +19,8 @@ bool LidarManager::InitiateDataCollection()
     const char * opt_com_path = NULL;
     _u32         opt_com_baudrate = 115200;
 
-    if (!opt_com_path) {
+    if (!opt_com_path)
+    {
 #ifdef _WIN32
         // use default com port
         opt_com_path = "\\\\.\\com3";
@@ -31,21 +32,24 @@ bool LidarManager::InitiateDataCollection()
     // create the driver instance
     _driver = RPlidarDriver::CreateDriver(RPlidarDriver::DRIVER_TYPE_SERIALPORT);
 
-    if (!_driver) {
+    if (!_driver)
+    {
         fprintf(stderr, "insufficent memory, exit\n");
         returnValue = false;
     }
 
     // make connection...
-    if (IS_FAIL(_driver->connect(opt_com_path, opt_com_baudrate))) {
+    if (IS_FAIL(_driver->connect(opt_com_path, opt_com_baudrate)))
+    {
         fprintf(stderr, "Error, cannot bind to the specified serial port %s.\n"
-            , opt_com_path);
+                , opt_com_path);
 
         returnValue = false;
     }
 
     // check health...
-    if (!CheckRPLIDARHealth(_driver)) {
+    if (!CheckRPLIDARHealth(_driver))
+    {
         returnValue = false;
     }
 
@@ -76,7 +80,8 @@ float LidarManager::IsObjectAhead(int thresholdInches)
     float totalDistanceOfQualityPoints = 0.0;
     float totalQualityPoints = 0.0;
 
-    for (int pos = 0; pos < (int)nodeCount ; ++pos) {
+    for (int pos = 0; pos < (int)nodeCount ; ++pos)
+    {
         float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
         float distance = _nodes[pos].distance_q2/4.0f;
         float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
@@ -108,7 +113,8 @@ float LidarManager::IsObjectBehind(int thresholdInches)
     float totalDistanceOfQualityPoints = 0.0;
     float totalQualityPoints = 0.0;
 
-    for (int pos = 0; pos < (int)nodeCount ; ++pos) {
+    for (int pos = 0; pos < (int)nodeCount ; ++pos)
+    {
         float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
         float distance = _nodes[pos].distance_q2/4.0f;
         float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
@@ -150,18 +156,24 @@ bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)
     rplidar_response_device_health_t healthinfo;
 
     op_result = drv->getHealth(healthinfo);
-    if (IS_OK(op_result)) { // the macro IS_OK is the preperred way to judge whether the operation is succeed.
+    if (IS_OK(op_result))   // the macro IS_OK is the preperred way to judge whether the operation is succeed.
+    {
         printf("RPLidar health status : %d\n", healthinfo.status);
-        if (healthinfo.status == RPLIDAR_STATUS_ERROR) {
+        if (healthinfo.status == RPLIDAR_STATUS_ERROR)
+        {
             fprintf(stderr, "Error, rplidar internal error detected. Please reboot the device to retry.\n");
             // enable the following code if you want rplidar to be reboot by software
             drv->reset();
             return false;
-        } else {
+        }
+        else
+        {
             return true;
         }
 
-    } else {
+    }
+    else
+    {
         fprintf(stderr, "Error, cannot retrieve the lidar health code: %x\n", op_result);
         return false;
     }

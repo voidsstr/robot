@@ -60,6 +60,8 @@ void robotLoop(char* ipAddress)
         float objectAheadDistance = lidarManager.IsObjectAhead(8);
         float objectBehindDistance = lidarManager.IsObjectBehind(8);
 
+        #ifdef __arm__
+
         if((navigationCoordinator.IsMovingForward() && objectAheadDistance > 0)
                 || (navigationCoordinator.IsMovingBackward() && objectBehindDistance > 0))
         {
@@ -76,6 +78,8 @@ void robotLoop(char* ipAddress)
         }
 
         navigationCoordinator.PrintTelemetry();
+
+        #endif
     }
 }
 
@@ -165,6 +169,6 @@ int main(int argc, char* argv[])
         perceptronLoop();
     }
 
-	return 0;
+    return 0;
 }
 

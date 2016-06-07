@@ -55,7 +55,7 @@ void RobotCommunicationManager::SendMessage(int message)
 {
     boost::system::error_code ignored_error;
     boost::asio::write(*_socket, boost::asio::buffer(&message, sizeof(message)),
-        boost::asio::transfer_all(), ignored_error);
+                       boost::asio::transfer_all(), ignored_error);
 }
 
 void RobotCommunicationManager::ConnectToRelayServer(char* ipAddress, int port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor)

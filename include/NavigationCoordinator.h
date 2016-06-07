@@ -21,28 +21,28 @@
 
 class NavigationCoordinator
 {
-    public:
-        NavigationCoordinator();
-        virtual ~NavigationCoordinator();
-        void Start();
-        void UpdateNavigationParameters(DIRECTION navigationParameter);
-        void ProcessUpdate();
-        void StopRobot();
+public:
+    NavigationCoordinator();
+    virtual ~NavigationCoordinator();
+    void Start();
+    void UpdateNavigationParameters(DIRECTION navigationParameter);
+    void ProcessUpdate();
+    void StopRobot();
 
-        void PrintTelemetry();
+    void PrintTelemetry();
 
-        bool IsMovingForward();
-        bool IsMovingBackward();
-    protected:
-    private:
-        std::stack<DIRECTION> _pendingUpdates;
-        void Accelerate();
-        void Decelerate();
-        void RotateLeft();
-        void RotateRight();
-        void NotifyPin(int pin);
+    bool IsMovingForward();
+    bool IsMovingBackward();
+protected:
+private:
+    std::stack<DIRECTION> _pendingUpdates;
+    void Accelerate();
+    void Decelerate();
+    void RotateLeft();
+    void RotateRight();
+    void NotifyPin(int pin);
 
-        int _navigationCount;
+    int _navigationCount;
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

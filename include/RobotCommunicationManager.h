@@ -18,15 +18,15 @@ using namespace boost::asio;
 
 class RobotCommunicationManager
 {
-    public:
-        RobotCommunicationManager();
-        virtual ~RobotCommunicationManager();
+public:
+    RobotCommunicationManager();
+    virtual ~RobotCommunicationManager();
 
-        void ConnectToRelayServer(char* ipAddress, int port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
-        void SendMessage(int message);
-        boost::asio::io_service _service;
-    private:
-        tcp::socket* _socket;
+    void ConnectToRelayServer(char* ipAddress, int port, NavigationCoordinator* navigationCoordinator, InputProcessor* inputProcessor);
+    void SendMessage(int message);
+    boost::asio::io_service _service;
+private:
+    tcp::socket* _socket;
 };
 
 #endif // COMMUNICATIONMANAGER_H

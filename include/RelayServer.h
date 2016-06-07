@@ -16,28 +16,28 @@ using boost::asio::ip::udp;
 
 class RelayServer
 {
-    public:
-        RelayServer(short clientListenPort, short robotListenPort);
-        virtual ~RelayServer();
+public:
+    RelayServer(short clientListenPort, short robotListenPort);
+    virtual ~RelayServer();
 
-        void Start();
-    protected:
-    private:
-        int _data[2];
-        udp::socket* _clientSocket;
-        udp::endpoint _clientEndpoint;
-        std::vector<RobotConnection*> _connections;
+    void Start();
+protected:
+private:
+    int _data[2];
+    udp::socket* _clientSocket;
+    udp::endpoint _clientEndpoint;
+    std::vector<RobotConnection*> _connections;
 
-        tcp::socket* _robotSocket;
+    tcp::socket* _robotSocket;
 
-        tcp::acceptor* _acceptor;
-        boost::asio::io_service* _service;
+    tcp::acceptor* _acceptor;
+    boost::asio::io_service* _service;
 
-        void RelayMessageToRobot();
-        void ReceiveClientMessages();
+    void RelayMessageToRobot();
+    void ReceiveClientMessages();
 
-        void RecieveRobotConnections();
-        void HandleAccept(RobotConnection* new_connection, const boost::system::error_code& error);
+    void RecieveRobotConnections();
+    void HandleAccept(RobotConnection* new_connection, const boost::system::error_code& error);
 };
 
 #endif // RELAYSERVER_H

@@ -79,24 +79,31 @@ void NavigationCoordinator::NotifyPin(int pin)
 
 void NavigationCoordinator::ProcessUpdate()
 {
-    if(_pendingUpdates.size() > 0) {
-        while(_pendingUpdates.size() > 0) {
+    if(_pendingUpdates.size() > 0)
+    {
+        while(_pendingUpdates.size() > 0)
+        {
             DIRECTION currentUpdate = _pendingUpdates.top();
             _pendingUpdates.pop();
 
-            if(currentUpdate == DIRECTION::UP) {
+            if(currentUpdate == DIRECTION::UP)
+            {
                 Accelerate();
             }
-            else if(currentUpdate == DIRECTION::DOWN) {
+            else if(currentUpdate == DIRECTION::DOWN)
+            {
                 Decelerate();
             }
-            else if(currentUpdate == DIRECTION::LEFT) {
+            else if(currentUpdate == DIRECTION::LEFT)
+            {
                 RotateLeft();
             }
-            else if(currentUpdate == DIRECTION::RIGHT) {
+            else if(currentUpdate == DIRECTION::RIGHT)
+            {
                 RotateRight();
             }
-            else {
+            else
+            {
                 mvprintw(0, 0, "No movement\n");
             }
         }
@@ -105,10 +112,14 @@ void NavigationCoordinator::ProcessUpdate()
 
 void NavigationCoordinator::Start()
 {
-	if(wiringPiSetup() == -1){ //when initialize wiring failed,print messageto screen
-		printw("setup wiringPi failed !\n");
-	}
-    else {
+    #ifdef __arm__
+
+    if(wiringPiSetup() == -1)  //when initialize wiring failed,print messageto screen
+    {
+        printw("setup wiringPi failed !\n");
+    }
+    else
+    {
         pinMode(AcceleratePin, OUTPUT);
         pinMode(DecelleratePin, OUTPUT);
 
@@ -117,4 +128,6 @@ void NavigationCoordinator::Start()
 
         pinMode(StopPin, OUTPUT);
     }
+
+    #endif
 }

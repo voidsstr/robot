@@ -17,22 +17,22 @@ using namespace rp::standalone::rplidar;
 
 class LidarManager
 {
-    public:
-        LidarManager();
-        virtual ~LidarManager();
-        bool InitiateDataCollection();
-        float IsObjectAhead(int thresholdInches);
-        float IsObjectBehind(int thresholdInches);
-        void FetchNewScanData();
-    protected:
-    private:
-        bool CheckRPLIDARHealth(RPlidarDriver * drv);
-        bool IsAheadOfVehicle(float angle);
-        bool IsBehindVehicle(float angle);
+public:
+    LidarManager();
+    virtual ~LidarManager();
+    bool InitiateDataCollection();
+    float IsObjectAhead(int thresholdInches);
+    float IsObjectBehind(int thresholdInches);
+    void FetchNewScanData();
+protected:
+private:
+    bool CheckRPLIDARHealth(RPlidarDriver * drv);
+    bool IsAheadOfVehicle(float angle);
+    bool IsBehindVehicle(float angle);
 
-        RPlidarDriver* _driver;
-        rplidar_response_measurement_node_t _nodes[NODE_COUNT];
-        int _navigationCount;
+    RPlidarDriver* _driver;
+    rplidar_response_measurement_node_t _nodes[NODE_COUNT];
+    int _navigationCount;
 };
 
 #endif // LIDARMANAGER_H

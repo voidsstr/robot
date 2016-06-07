@@ -10,19 +10,19 @@ using namespace std;
 
 class FaceTargetPerceptron
 {
-    public:
-        FaceTargetPerceptron();
-        virtual ~FaceTargetPerceptron();
+public:
+    FaceTargetPerceptron();
+    virtual ~FaceTargetPerceptron();
 
-        std::vector<float> FeedForward(std::vector<float> forces);
-        void Train(std::vector<float> forces, std::vector<float> forceErrors);
-        std::vector<float>* CalculateError(float currentTheta, std::vector<float> forces);
-    protected:
-    private:
-        //Represents [Left Track Weight, Right Track Weight]
-        std::vector<float> _forceWeights;
+    std::vector<float> FeedForward(std::vector<float> forces);
+    void Train(std::vector<float> forces, std::vector<float> forceErrors);
+    std::vector<float>* CalculateError(float currentTheta, std::vector<float> forces);
+protected:
+private:
+    //Represents [Left Track Weight, Right Track Weight]
+    std::vector<float> _forceWeights;
 
-        float _learningConstant;
+    float _learningConstant;
 };
 
 #endif // FACETARGETPERCEPTRON_H

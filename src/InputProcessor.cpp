@@ -12,19 +12,24 @@ InputProcessor::~InputProcessor()
 
 DIRECTION InputProcessor::ProcessInput(int key)
 {
-    if(key == 259) {
-		return DIRECTION::UP;
+    if(key == 259)
+    {
+        return DIRECTION::UP;
     }
-    else if(key == 258) {
+    else if(key == 258)
+    {
         return DIRECTION::DOWN;
     }
-    else if(key == 260) {
+    else if(key == 260)
+    {
         return DIRECTION::LEFT;
     }
-    else if(key == 261) {
+    else if(key == 261)
+    {
         return DIRECTION::RIGHT;
     }
-    else if(key == 113) {
+    else if(key == 113)
+    {
         throw std::invalid_argument("Quit!");
     }
 

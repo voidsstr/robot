@@ -7,18 +7,18 @@ using boost::asio::ip::udp;
 
 class ClientManager
 {
-    public:
-        ClientManager(char* ipAddress, int port);
-        virtual ~ClientManager();
+public:
+    ClientManager(char* ipAddress, int port);
+    virtual ~ClientManager();
 
-        void SendMessage(int message[2]);
-    protected:
-    private:
-        char* _ipAddress;
-        int _port;
-        udp::endpoint _relayServerEndpoint;
-        udp::socket* _socket;
-        boost::asio::io_service* _ioService;
+    void SendMessage(int message[2]);
+protected:
+private:
+    char* _ipAddress;
+    int _port;
+    udp::endpoint _relayServerEndpoint;
+    udp::socket* _socket;
+    boost::asio::io_service* _ioService;
 };
 
 #endif // CLIENTMANAGER_H

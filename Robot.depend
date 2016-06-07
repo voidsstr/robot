@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1462231703 source:/home/mike/dev/robot/main.cpp
+1465268097 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -117,8 +117,9 @@
 	"RelayServer.h"
 	"ClientManager.h"
 	"LidarManager.h"
+	"FaceTargetPerceptron.h"
 
-1462231742 /home/mike/dev/robot/include/NavigationCoordinator.h
+1465267005 /home/mike/dev/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
 	<stdio.h>
 	<stdlib.h>
@@ -127,12 +128,12 @@
 	"InputProcessor.h"
 	"NavigationParameter.h"
 
-1455332778 /home/mike/dev/robot/include/InputProcessor.h
+1465267005 /home/mike/dev/robot/include/InputProcessor.h
 	<curses.h>
 	<stdexcept>
 	"NavigationParameter.h"
 
-1454790918 /home/mike/dev/robot/include/NavigationParameter.h
+1465267005 /home/mike/dev/robot/include/NavigationParameter.h
 
 1454641743 /home/mike/dev/robot/include/CommunicationManager.h
 	"NavigationCoordinator.h"
@@ -147,13 +148,13 @@
 1454473039 source:/home/mike/dev/robot/src/CommunicationManager.cpp
 	"CommunicationManager.h"
 
-1455332817 source:/home/mike/dev/robot/src/InputProcessor.cpp
+1465267005 source:/home/mike/dev/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1462229170 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
+1465267005 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
-1454818204 /home/mike/dev/robot/include/RobotCommunicationManager.h
+1465267005 /home/mike/dev/robot/include/RobotCommunicationManager.h
 	"NavigationCoordinator.h"
 	<iostream>
 	<boost/array.hpp>
@@ -165,7 +166,7 @@
 	<stdlib.h>
 	<cstring>
 
-1462133788 /home/mike/dev/robot/include/RelayServer.h
+1465267005 /home/mike/dev/robot/include/RelayServer.h
 	<cstdlib>
 	<iostream>
 	<boost/asio.hpp>
@@ -175,25 +176,25 @@
 	<boost/enable_shared_from_this.hpp>
 	<RobotConnection.h>
 
-1462133788 /home/mike/dev/robot/include/RobotConnection.h
+1465267005 /home/mike/dev/robot/include/RobotConnection.h
 	<boost/array.hpp>
 	<boost/bind.hpp>
 	<boost/shared_ptr.hpp>
 	<boost/enable_shared_from_this.hpp>
 	<boost/asio.hpp>
 
-1455331811 /home/mike/dev/robot/include/ClientManager.h
+1465267005 /home/mike/dev/robot/include/ClientManager.h
 	<boost/asio.hpp>
 
 1455331811 source:/home/mike/dev/robot/src/ClientManager.cpp
 	"ClientManager.h"
 
-1454818401 source:/home/mike/dev/robot/src/RobotCommunicationManager.cpp
+1465267005 source:/home/mike/dev/robot/src/RobotCommunicationManager.cpp
 	"RobotCommunicationManager.h"
 
-1454802461 source:/home/mike/dev/robot/src/RobotConnection.cpp
+1465267005 source:/home/mike/dev/robot/src/RobotConnection.cpp
 
-1462133788 source:/home/mike/dev/robot/src/RelayServer.cpp
+1465267005 source:/home/mike/dev/robot/src/RelayServer.cpp
 	"RelayServer.h"
 
 1455331811 ated upstream
@@ -276,10 +277,11 @@
 
 1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
 
-1462231490 /home/mike/dev/robot/include/LidarManager.h
+1465267005 /home/mike/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
+	<curses.h>
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar.h
 	"rptypes.h"
@@ -297,7 +299,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1462231490 source:/home/mike/dev/robot/src/LidarManager.cpp
+1465267005 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes
@@ -369,4 +371,13 @@
 	"RobotCommunicationManager.h"
 
 1455328064 source:/home/pi/git/robot/src/RobotConnection.cpp
+
+1465267005 /home/mike/dev/robot/include/FaceTargetPerceptron.h
+	<stdio.h>
+	<stdlib.h>
+	<vector>
+	<iostream>
+
+1465266617 source:/home/mike/dev/robot/src/FaceTargetPerceptron.cpp
+	"FaceTargetPerceptron.h"
 

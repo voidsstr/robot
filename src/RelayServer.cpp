@@ -22,18 +22,18 @@ void RelayServer::ReceiveClientMessages()
     _clientSocket->async_receive_from(
         boost::asio::buffer(_data, sizeof(_data)), _clientEndpoint,
         [this](boost::system::error_code ec, std::size_t bytes_recvd)
+    {
+        if (!ec && bytes_recvd > 0)
         {
-            if (!ec && bytes_recvd > 0)
-            {
-                std::cout << "Recieved data!\n";
-                RelayMessageToRobot();
-                ReceiveClientMessages();
-            }
-            else
-            {
-                ReceiveClientMessages();
-            }
-        });
+            std::cout << "Recieved data!\n";
+            RelayMessageToRobot();
+            ReceiveClientMessages();
+        }
+        else
+        {
+            ReceiveClientMessages();
+        }
+    });
 }
 
 void RelayServer::RelayMessageToRobot()
