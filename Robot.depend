@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1465268097 source:/home/mike/dev/robot/main.cpp
+1469562489 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -151,7 +151,7 @@
 1465267005 source:/home/mike/dev/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1465267005 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
+1465268171 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
 1465267005 /home/mike/dev/robot/include/RobotCommunicationManager.h
@@ -299,7 +299,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1465267005 source:/home/mike/dev/robot/src/LidarManager.cpp
+1469562489 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes
@@ -380,4 +380,10 @@
 
 1465266617 source:/home/mike/dev/robot/src/FaceTargetPerceptron.cpp
 	"FaceTargetPerceptron.h"
+
+1469564264 source:/home/mike/dev/robot/src/LocationManager.cpp
+	"LocationManager.h"
+
+1469564264 /home/mike/dev/robot/include/LocationManager.h
+	"libgpsmm.h"
 
