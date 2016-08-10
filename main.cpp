@@ -5,6 +5,7 @@
 #include <curses.h>
 #include <wiringPi.h>
 #include <softPwm.h>
+#include <unistd.h>
 
 #include "NavigationCoordinator.h"
 #include "RobotCommunicationManager.h"
@@ -49,16 +50,15 @@ void robotLoop(char* ipAddress)
 
     while(true)
     {
-        delay(100);
-
         ch = getch();
 
         DIRECTION input = inputProcessor.ProcessInput(ch);
 
-        lidarManager.FetchNewScanData();
+        //usleep(100000);
 
-        float objectAheadDistance = lidarManager.IsObjectAhead(8);
-        float objectBehindDistance = lidarManager.IsObjectBehind(8);
+        /*float objectAheadDistance = lidarManager.IsObjectAhead(8);
+        float objectBehindDistance = lidarManager.IsObjectBehind(8);*/
+        lidarManager.PrintScanData();
 
         #ifdef __arm__
 

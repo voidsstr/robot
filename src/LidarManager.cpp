@@ -140,6 +140,31 @@ float LidarManager::IsObjectBehind(int thresholdInches)
     return 0;
 }
 
+void LidarManager::PrintScanData()
+{
+    rplidar_response_measurement_node_t nodes[360*2];
+    size_t   nodeCount = _countof(nodes);
+    u_result     op_result;
+
+    op_result = _driver->grabScanData(nodes, nodeCount);
+
+    for (int pos = 0; pos < (int)nodeCount ; ++pos)
+    {
+        float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = nodes[pos].distance_q2/4.0f;
+        float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+
+        float distanceInches = distance / MM_TO_INCH;
+
+        if(distanceInches > 0 && distanceInches < 10 && quality > 15)
+        {
+            clear();
+            mvprintw(0, 0, "Object detected %f inches at %f angle of %f quality", distanceInches, angle, quality);
+            refresh();
+        }
+    }
+}
+
 bool LidarManager::IsAheadOfVehicle(float angle)
 {
     return angle > 165 && angle < 195;

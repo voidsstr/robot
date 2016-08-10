@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1470796576 source:/home/mike/dev/robot/main.cpp
+1470798274 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -112,6 +112,7 @@
 	<curses.h>
 	<wiringPi.h>
 	<softPwm.h>
+	<unistd.h>
 	"NavigationCoordinator.h"
 	"RobotCommunicationManager.h"
 	"RelayServer.h"
@@ -300,7 +301,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1470797937 source:/home/mike/dev/robot/src/LidarManager.cpp
+1470798605 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes

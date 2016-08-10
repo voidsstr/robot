@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "rplidar.h" //RPLIDAR standard sdk, all-in-one header
 #include <curses.h>
+#include <unistd.h>
 
 #ifndef _countof
 #define _countof(_Array) (int)(sizeof(_Array) / sizeof(_Array[0]))
@@ -24,6 +25,7 @@ public:
     float IsObjectAhead(int thresholdInches);
     float IsObjectBehind(int thresholdInches);
     void FetchNewScanData();
+    void PrintScanData();
 protected:
 private:
     bool CheckRPLIDARHealth(RPlidarDriver * drv);
