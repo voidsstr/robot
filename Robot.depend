@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1469562489 source:/home/mike/dev/robot/main.cpp
+1470796576 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -277,11 +277,12 @@
 
 1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
 
-1465267005 /home/mike/dev/robot/include/LidarManager.h
+1470796697 /home/mike/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
 	<curses.h>
+	<unistd.h>
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar.h
 	"rptypes.h"
@@ -299,7 +300,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1469562489 source:/home/mike/dev/robot/src/LidarManager.cpp
+1470797937 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes

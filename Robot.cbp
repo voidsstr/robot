@@ -28,6 +28,7 @@
 					<Add library="rplidar_sdk" />
 					<Add library="rt" />
 					<Add directory="dependencies/lib" />
+					<Add directory="dependencies/lib/rplidar/x64" />
 				</Linker>
 			</Target>
 			<Target title="Release">
