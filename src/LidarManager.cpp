@@ -74,70 +74,54 @@ void LidarManager::FetchNewScanData()
 
 }
 
-float LidarManager::IsObjectAhead(int thresholdInches)
+bool LidarManager::IsObjectAhead(int thresholdInches)
 {
-    size_t nodeCount = _countof(_nodes);
-    float totalDistanceOfQualityPoints = 0.0;
-    float totalQualityPoints = 0.0;
+    rplidar_response_measurement_node_t nodes[360*2];
+    size_t   nodeCount = _countof(nodes);
+    u_result     op_result;
+
+    op_result = _driver->grabScanData(nodes, nodeCount);
 
     for (int pos = 0; pos < (int)nodeCount ; ++pos)
     {
-        float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
-        float distance = _nodes[pos].distance_q2/4.0f;
-        float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+        float angle = (nodes[pos].angle_q6_checkbift >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = nodes[pos].distance_q2/4.0f;
+        float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
 
         float distanceInches = distance / MM_TO_INCH;
 
-        if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsAheadOfVehicle(angle))
+        if(distanceInches > 0 && distanceInches < 10 && quality > 15 && IsAheadOfVehicle(angle))
         {
-            mvprintw(0, 0, "Object detected %f inches ahead vehicle.  ", distanceInches);
-
-            totalDistanceOfQualityPoints += distanceInches;
-            totalQualityPoints++;
+            return true;
         }
     }
 
-    float averageDistance = (totalDistanceOfQualityPoints / totalQualityPoints);
-
-    if(averageDistance <= thresholdInches)
-    {
-        return averageDistance;
-    }
-
-    return 0;
+    return false;
 }
 
-float LidarManager::IsObjectBehind(int thresholdInches)
+bool LidarManager::IsObjectBehind(int thresholdInches)
 {
-    size_t nodeCount = _countof(_nodes);
-    float totalDistanceOfQualityPoints = 0.0;
-    float totalQualityPoints = 0.0;
+    rplidar_response_measurement_node_t nodes[360*2];
+    size_t   nodeCount = _countof(nodes);
+    u_result     op_result;
+
+    op_result = _driver->grabScanData(nodes, nodeCount);
 
     for (int pos = 0; pos < (int)nodeCount ; ++pos)
     {
-        float angle = (_nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
-        float distance = _nodes[pos].distance_q2/4.0f;
-        float quality = _nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+        float angle = (nodes[pos].angle_q6_checkbift >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = nodes[pos].distance_q2/4.0f;
+        float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
 
         float distanceInches = distance / MM_TO_INCH;
 
-        if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsBehindVehicle(angle))
+        if(distanceInches > 0 && distanceInches < 10 && quality > 15 && IsBehindVehicle(angle))
         {
-            mvprintw(1, 0, "Object detected %f inches behind vehicle.  ", distanceInches);
-
-            totalDistanceOfQualityPoints += distanceInches;
-            totalQualityPoints++;
+            return true;
         }
     }
 
-    float averageDistance = (totalDistanceOfQualityPoints / totalQualityPoints);
-
-    if(averageDistance <= thresholdInches)
-    {
-        return averageDistance;
-    }
-
-    return 0;
+    return false;
 }
 
 void LidarManager::PrintScanData()
@@ -150,7 +134,7 @@ void LidarManager::PrintScanData()
 
     for (int pos = 0; pos < (int)nodeCount ; ++pos)
     {
-        float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float angle = (nodes[pos].angle_q6_checkbift >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
         float distance = nodes[pos].distance_q2/4.0f;
         float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
 
@@ -167,12 +151,12 @@ void LidarManager::PrintScanData()
 
 bool LidarManager::IsAheadOfVehicle(float angle)
 {
-    return angle > 165 && angle < 195;
+    return (angle >= 180 && angle =< 225) || (angle <= 180 && angle >= 135);
 }
 
 bool LidarManager::IsBehindVehicle(float angle)
 {
-    return angle > 0 && angle < 45;
+    return (angle >= 0 && angle =< 45) || (angle <= 360 && angle >= 315);
 }
 
 bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)

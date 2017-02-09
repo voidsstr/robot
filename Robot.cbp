@@ -55,6 +55,7 @@
 		<Unit filename="include/FaceTargetPerceptron.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/LidarManager.h" />
+		<Unit filename="include/LocationManager.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
 		<Unit filename="include/NavigationParameter.h" />
 		<Unit filename="include/RelayServer.h" />
@@ -65,6 +66,7 @@
 		<Unit filename="src/FaceTargetPerceptron.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
 		<Unit filename="src/LidarManager.cpp" />
+		<Unit filename="src/LocationManager.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />
 		<Unit filename="src/RelayServer.cpp" />
 		<Unit filename="src/RobotCommunicationManager.cpp" />
