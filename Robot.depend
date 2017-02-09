@@ -278,7 +278,7 @@
 
 1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
 
-1470796697 /home/mike/dev/robot/include/LidarManager.h
+1486656267 /home/mike/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
@@ -301,7 +301,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1470798605 source:/home/mike/dev/robot/src/LidarManager.cpp
+1486656267 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes
@@ -388,4 +388,17 @@
 
 1469564264 /home/mike/dev/robot/include/LocationManager.h
 	"libgpsmm.h"
+
+1486662007 source:/home/mike/dev/robot/src/RadioCommunicationManager.cpp
+	"RadioCommunicationManager.h"
+
+1486662059 /home/mike/dev/robot/include/RadioCommunicationManager.h
+	<list>
+	<string>
+	<cstdio>
+	<cstring>
+	<libusb-1.0/libusb.h>
+	<unistd.h>
+	<iostream>
+	<sstream>
 
