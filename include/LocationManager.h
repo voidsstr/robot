@@ -1,15 +1,20 @@
 #ifndef LOCATIONMANAGER_H
 #define LOCATIONMANAGER_H
 
+#include "libgpsmm.h"
+
+using namespace std;
 
 class LocationManager
 {
     public:
         LocationManager();
         virtual ~LocationManager();
+        void ReadState();
+        void PrintState(struct gps_data_t *collect);
     protected:
     private:
-        //TODO: create datastructure to store relavent scan data by time. use balanced tree structure to store for quick storage and retrieval.
+        gpsmm* _gpsDriver;
 };
 
 #endif // LOCATIONMANAGER_H
