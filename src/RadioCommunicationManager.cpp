@@ -259,6 +259,11 @@ void RadioCommunicationManager::setDataRate(std::string strDataRate)
     this->writeControl(NULL, 0, 0x03, nDataRate, 0);
 }
 
+void RadioCommunicationManager::setCommunicationMode(enum ComMode mode)
+{
+    this->writeControl(NULL, 0, 0x22, mode, 0);
+}
+
 void RadioCommunicationManager::setARDTime(int nARDTime)
 { // in uSec
     m_nARDTime = nARDTime;

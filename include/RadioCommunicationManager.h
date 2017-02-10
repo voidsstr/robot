@@ -24,6 +24,12 @@ enum Power
     P_0DBM = 3
 };
 
+enum ComMode
+{
+    Transmit = 0,
+    Recieve = 2
+}
+
 class RadioCommunicationManager
 {
     public:
