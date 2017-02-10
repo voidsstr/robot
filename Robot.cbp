@@ -52,6 +52,7 @@
 			<Add option="-fexceptions" />
 		</Compiler>
 		<Unit filename="README.md" />
+		<Unit filename="include/CCRTPPacket.h" />
 		<Unit filename="include/ClientManager.h" />
 		<Unit filename="include/FaceTargetPerceptron.h" />
 		<Unit filename="include/InputProcessor.h" />
@@ -63,6 +64,7 @@
 		<Unit filename="include/RobotCommunicationManager.h" />
 		<Unit filename="include/RobotConnection.h" />
 		<Unit filename="main.cpp" />
+		<Unit filename="src/CCRTPPacket.cpp" />
 		<Unit filename="src/ClientManager.cpp" />
 		<Unit filename="src/FaceTargetPerceptron.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
