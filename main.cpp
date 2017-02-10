@@ -33,31 +33,30 @@ void setupCurses()
 
 void robotLoop(char* ipAddress)
 {
-    RadioCommunicationManager radio("radio://0/10/250K");
-
-    radio.startRadio();
-
     setupCurses();
 
-    InputProcessor inputProcessor;
+    //InputProcessor inputProcessor;
 
-    RobotCommunicationManager communicationManager;
-    NavigationCoordinator navigationCoordinator;
-    navigationCoordinator.Start();
+    /*RobotCommunicationManager communicationManager;
 
-    LidarManager lidarManager;
-    lidarManager.InitiateDataCollection();
+    navigationCoordinator.Start();*/
+
+    /*LidarManager lidarManager;
+    lidarManager.InitiateDataCollection();*/
 
     /*Start listenining to commands from server*/
     //communicationManager.ConnectToRelayServer(ipAddress, ROBOT_RELAY_LISTEN_PORT, &navigationCoordinator, &inputProcessor);
 
-    int ch;
+    //int ch;
+
+    NavigationCoordinator navigationCoordinator;
+    RadioCommunicationManager radio("radio://0/10/250K", Recieve);
 
     while(true)
     {
-        ch = getch();
+        //ch = getch();
 
-        DIRECTION input = inputProcessor.ProcessInput(ch);
+        //DIRECTION input = inputProcessor.ProcessInput(ch);
 
         //usleep(100000);
 
@@ -65,7 +64,7 @@ void robotLoop(char* ipAddress)
         float objectBehindDistance = lidarManager.IsObjectBehind(8);
         lidarManager.PrintScanData();*/
 
-        #ifdef __arm__
+        /*#ifdef __arm__
 
         if((navigationCoordinator.IsMovingForward() && objectAheadDistance > 0)
                 || (navigationCoordinator.IsMovingBackward() && objectBehindDistance > 0))
@@ -84,21 +83,33 @@ void robotLoop(char* ipAddress)
 
         navigationCoordinator.PrintTelemetry();
 
-        #endif
+        #endif*/
+
+        int nBufferSize = 64;
+        char cBuffer[nBufferSize];
+        int nBytesRead = nBufferSize;
+
+        if(radio.readData(cBuffer, nBytesRead))
+        {
+            navigationCoordinator.UpdateNavigationParameters(DIRECTION::DOWN);
+            navigationCoordinator.ProcessUpdate();
+        }
     }
 }
 
-void clientLoop(char* ipAddress)
+void clientLoop()
 {
     setupCurses();
+
+    RadioCommunicationManager radio("radio://0/10/250K", Transmit);
+
+    radio.startRadio();
 
     InputProcessor inputProcessor;
 
     int ch;
 
     mvprintw(0, 0, "Enter commands to send to robot...\n");
-
-    /*ClientManager client(ipAddress, CLIENT_RELAY_LISTEN_PORT);
 
     while(true)
     {
@@ -108,11 +119,15 @@ void clientLoop(char* ipAddress)
 
         if(input != DIRECTION::UNKNOWN)
         {
-            int message[2] = { 1, ch };
-            //Send command to robot via network
-            client.SendMessage(message);
+            std::ostringstream oss;
+            oss << input;
+            char* command = (char*)oss.str().c_str();
+
+            CCRTPPacket* packet = new CCRTPPacket(command, sizeof(command), 1);
+
+            radio.sendPacket(packet, true);
         }
-    }*/
+    }
 }
 
 void perceptronLoop()
@@ -161,7 +176,7 @@ int main(int argc, char* argv[])
     else if(isClient)
     {
         //TODO: implement client loop compatible with relay server
-        clientLoop(argv[2]);
+        clientLoop();
     }
     else if(isRelayServer)
     {

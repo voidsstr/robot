@@ -1,6 +1,6 @@
 #include "RadioCommunicationManager.h"
 
-RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentifier)
+RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentifier, enum TransmissionMode mode)
 {
     m_strRadioIdentifier = strRadioIdentifier;
     m_enumPower = P_M18DBM;
@@ -63,6 +63,7 @@ bool RadioCommunicationManager::startRadio()
                 // Set power-up settings for dongle (>= v0.4)
                 this->setDataRate("2M");
                 this->setChannel(2);
+                this->setTransmissionMode(m_enumTransmissionMode);
 
                 if(m_fDeviceVersion >= 0.4) {
                     this->setContCarrier(false);
@@ -259,11 +260,6 @@ void RadioCommunicationManager::setDataRate(std::string strDataRate)
     this->writeControl(NULL, 0, 0x03, nDataRate, 0);
 }
 
-void RadioCommunicationManager::setCommunicationMode(enum ComMode mode)
-{
-    this->writeControl(NULL, 0, 0x22, mode, 0);
-}
-
 void RadioCommunicationManager::setARDTime(int nARDTime)
 { // in uSec
     m_nARDTime = nARDTime;
@@ -298,6 +294,13 @@ void RadioCommunicationManager::setPower(enum Power enumPower)
     m_enumPower = enumPower;
 
     this->writeControl(NULL, 0, 0x04, enumPower, 0);
+}
+
+void RadioCommunicationManager::setTransmissionMode(enum TransmissionMode transmissionMode)
+{
+    m_enumTransmissionMode = transmissionMode;
+
+    this->writeControl(NULL, 0, 0x22, transmissionMode, 0);
 }
 
 void RadioCommunicationManager::setAddress(char *cAddress)
