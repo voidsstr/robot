@@ -9,6 +9,7 @@
 
 #include "NavigationCoordinator.h"
 #include "RobotCommunicationManager.h"
+#include "RadioCommunicationManager.h"
 #include "RelayServer.h"
 #include "ClientManager.h"
 #include "LidarManager.h"
@@ -32,6 +33,10 @@ void setupCurses()
 
 void robotLoop(char* ipAddress)
 {
+    RadioCommunicationManager radio("radio://0/10/250K");
+
+    radio.startRadio();
+
     setupCurses();
 
     InputProcessor inputProcessor;
@@ -57,8 +62,8 @@ void robotLoop(char* ipAddress)
         //usleep(100000);
 
         /*float objectAheadDistance = lidarManager.IsObjectAhead(8);
-        float objectBehindDistance = lidarManager.IsObjectBehind(8);*/
-        lidarManager.PrintScanData();
+        float objectBehindDistance = lidarManager.IsObjectBehind(8);
+        lidarManager.PrintScanData();*/
 
         #ifdef __arm__
 
@@ -93,7 +98,7 @@ void clientLoop(char* ipAddress)
 
     mvprintw(0, 0, "Enter commands to send to robot...\n");
 
-    ClientManager client(ipAddress, CLIENT_RELAY_LISTEN_PORT);
+    /*ClientManager client(ipAddress, CLIENT_RELAY_LISTEN_PORT);
 
     while(true)
     {
@@ -107,7 +112,7 @@ void clientLoop(char* ipAddress)
             //Send command to robot via network
             client.SendMessage(message);
         }
-    }
+    }*/
 }
 
 void perceptronLoop()

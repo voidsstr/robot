@@ -27,8 +27,9 @@ enum Power
 class RadioCommunicationManager
 {
     public:
-        RadioCommunicationManager();
+        RadioCommunicationManager(std::string strRadioIdentifier);
         virtual ~RadioCommunicationManager();
+        bool startRadio();
 
     protected:
 
@@ -65,7 +66,6 @@ class RadioCommunicationManager
         bool sendDummyPacket();
 
         std::list<libusb_device*> listDevices(int nVendorID, int nProductID);
-        bool startRadio();
 
         std::string m_strRadioIdentifier;
 
@@ -84,7 +84,6 @@ class RadioCommunicationManager
         float m_fDeviceVersion;
         bool m_bAckReceived;
         std::list<CCRTPPacket*> m_lstLoggingPackets;
-
 };
 
 #endif // RADIOCOMMUNICATIONMANAGER_H

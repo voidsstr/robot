@@ -1,8 +1,18 @@
 #include "RadioCommunicationManager.h"
 
-RadioCommunicationManager::RadioCommunicationManager()
+RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentifier)
 {
-    //ctor
+    m_strRadioIdentifier = strRadioIdentifier;
+    m_enumPower = P_M18DBM;
+
+    m_ctxContext = NULL;
+    m_hndlDevice = NULL;
+
+    m_bAckReceived = false;
+
+    /*int nReturn = */libusb_init(&m_ctxContext);
+
+    // Do error checking here.
 }
 
 RadioCommunicationManager::~RadioCommunicationManager()
@@ -92,7 +102,8 @@ std::list<libusb_device*> RadioCommunicationManager::listDevices(int nVendorID, 
 
     szCount = libusb_get_device_list(m_ctxContext, &ptDevices);
 
-    for(unsigned int unI = 0; unI < szCount; unI++) {
+    for(unsigned int unI = 0; unI < szCount; unI++)
+    {
         libusb_device *devCurrent = ptDevices[unI];
         libusb_device_descriptor ddDescriptor;
 
@@ -104,7 +115,8 @@ std::list<libusb_device*> RadioCommunicationManager::listDevices(int nVendorID, 
         }
     }
 
-    if(szCount > 0) {
+    if(szCount > 0)
+    {
         libusb_free_device_list(ptDevices, 1);
     }
 
@@ -125,7 +137,7 @@ void RadioCommunicationManager::closeDevice()
 
 bool RadioCommunicationManager::openUSBDongle()
 {
-    this->closeDevice();
+    //this->closeDevice();
     std::list<libusb_device*> lstDevices = this->listDevices(0x1915, 0x7777);
 
     if(lstDevices.size() > 0)
