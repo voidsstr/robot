@@ -51,6 +51,7 @@ void robotLoop(char* ipAddress)
 
     NavigationCoordinator navigationCoordinator;
     RadioCommunicationManager radio("radio://0/10/250K", Recieve);
+    radio.startRadio();
 
     while(true)
     {
