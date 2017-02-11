@@ -75,19 +75,6 @@ class CCRTPPacket {
     \return Returns the number of bytes stored as payload data */
   int dataLength();
 
-  /*! \brief Prepares a sendable block of data based on the
-      CCRTPPacket details
-    A block of data is prepared that contains the packet header
-    (channel, port), the payload data and a finishing byte
-    (0x27). This block is newly allocated and must be delete[]'d after
-    usage.
-    \return Pointer to a new char[] containing a sendable block of
-    payload data */
-  char *sendableData();
-  /*! \brief Returns the length of a sendable data block
-    \return Length of the sendable data block returned by
-    sendableData() (in bytes) */
-  int sendableDataLength();
 
   /*! \brief Set the copter port to send the payload data to
     The port identifies the purpose of the packet on the copter. This

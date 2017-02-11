@@ -326,50 +326,7 @@ CCRTPPacket *RadioCommunicationManager::sendPacket(CCRTPPacket *crtpSend, bool b
 {
     CCRTPPacket *crtpPacket = NULL;
 
-    char *cSendable = crtpSend->sendableData();
-    crtpPacket = this->writeData(cSendable, crtpSend->sendableDataLength());
-
-    delete[] cSendable;
-
-    if(crtpPacket)
-    {
-        char *cData = crtpPacket->data();
-        int nLength = crtpPacket->dataLength();
-
-        if(nLength > 0)
-        {
-            short sPort = (cData[0] & 0xf0) >> 4;
-            crtpPacket->setPort(sPort);
-            short sChannel = cData[0] & 0b00000011;
-            crtpPacket->setChannel(sChannel);
-
-            switch(sPort)
-            {
-                case 0:
-                { // Console
-                    char cText[nLength];
-                    std::memcpy(cText, &cData[1], nLength - 1);
-                    cText[nLength - 1] = '\0';
-
-                    std::cout << "Console text: " << cText << std::endl;
-                }
-                break;
-
-                case 5:
-                { // Logging
-                    if(crtpPacket->channel() == 2)
-                    {
-                        CCRTPPacket *crtpLog = new CCRTPPacket(cData, nLength, crtpPacket->channel());
-                        crtpLog->setChannel(crtpPacket->channel());
-                        crtpLog->setPort(crtpPacket->port());
-
-                        m_lstLoggingPackets.push_back(crtpLog);
-                    }
-                }
-                break;
-            }
-        }
-    }
+    crtpPacket = this->writeData(crtpSend->data(), crtpSend->dataLength());
 
     if(bDeleteAfterwards)
     {
