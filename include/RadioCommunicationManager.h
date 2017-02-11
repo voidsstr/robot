@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
+#include <curses.h>
+#include "HUDManager.h"
 
 #include "CCRTPPacket.h"
 

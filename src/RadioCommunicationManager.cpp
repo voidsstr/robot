@@ -30,7 +30,10 @@ bool RadioCommunicationManager::startRadio()
 
         if(std::sscanf(m_strRadioIdentifier.c_str(), "radio://%d/%d/%d%c", &nDongleNBR, &nRadioChannel, &nDataRate, &cDataRateType) != EOF)
         {
-            std::cout << "Opening radio " << nDongleNBR << "/" << nRadioChannel << "/" << nDataRate << cDataRateType << std::endl;
+            std::stringstream message;
+            message << "Opening radio " << nDongleNBR << "/" << nRadioChannel << "/" << nDataRate << std::to_string(cDataRateType);
+
+            HUDManager::logMessage(HardwareStatus, message.str());
 
             std::stringstream sts;
             sts << nDataRate;
@@ -201,7 +204,7 @@ bool RadioCommunicationManager::readData(void *vdData, int &nMaxLength)
         switch(nReturn)
         {
             case LIBUSB_ERROR_TIMEOUT:
-              //std::cout << "USB timeout" << std::endl;
+              mvprintw(0, 3, "USB Read Timeout\n");
               break;
 
             default:
