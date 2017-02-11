@@ -56,7 +56,7 @@ void robotLoop()
                 navigationCoordinator.ProcessUpdate();
             }
 
-            usleep(100000);
+            usleep(25000);
         }
     }
 }

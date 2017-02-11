@@ -32,9 +32,10 @@ DIRECTION InputProcessor::ProcessInput(int key)
         HUDManager::logMessage(InputFeedback, "Navigated right");
         return DIRECTION::RIGHT;
     }
-    else if(key == 113)
+    else if(key == 32)
     {
-        throw std::invalid_argument("Quit!");
+        HUDManager::logMessage(InputFeedback, "Stopped robot");
+        return DIRECTION::STOP;
     }
 
     return DIRECTION::UNKNOWN;

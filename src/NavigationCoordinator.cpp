@@ -102,6 +102,10 @@ void NavigationCoordinator::ProcessUpdate()
             {
                 RotateRight();
             }
+            else if(currentUpdate == DIRECTION::STOP)
+            {
+                StopRobot();
+            }
             else
             {
                 mvprintw(0, 0, "No movement\n");

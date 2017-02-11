@@ -7,6 +7,7 @@ enum DIRECTION
     DOWN,
     LEFT,
     RIGHT,
+    STOP,
     UNKNOWN
 };
 
