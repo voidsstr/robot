@@ -1,8 +1,8 @@
 #include "RadioCommunicationManager.h"
 
-RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentifier, enum TransmissionMode mode)
+RadioCommunicationManager::RadioCommunicationManager(enum TransmissionMode mode)
 {
-    m_strRadioIdentifier = strRadioIdentifier;
+    m_strRadioIdentifier = "radio://0/10/250K";
     m_enumPower = P_M18DBM;
 
     m_ctxContext = NULL;
@@ -11,9 +11,7 @@ RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentif
     m_bAckReceived = false;
     m_enumTransmissionMode = mode;
 
-    /*int nReturn = */libusb_init(&m_ctxContext);
-
-    // Do error checking here.
+    libusb_init(&m_ctxContext);
 }
 
 RadioCommunicationManager::~RadioCommunicationManager()
@@ -349,13 +347,7 @@ CCRTPPacket *RadioCommunicationManager::readACK()
     {
         if(nBytesRead > 0)
         {
-            // Analyse status byte
-            m_bAckReceived = true;//cBuffer[0] & 0x1;
-            //bool bPowerDetector = cBuffer[0] & 0x2;
-            //int nRetransmissions = cBuffer[0] & 0xf0;
-
-            // TODO(winkler): Do internal stuff with the data received here
-            // (store current link quality, etc.). For now, ignore it.
+            m_bAckReceived = true;
 
             crtpPacket = new CCRTPPacket(0);
 
@@ -366,7 +358,7 @@ CCRTPPacket *RadioCommunicationManager::readACK()
         }
         else
         {
-          m_bAckReceived = false;
+            m_bAckReceived = false;
         }
     }
 

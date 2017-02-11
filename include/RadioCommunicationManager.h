@@ -33,7 +33,7 @@ enum TransmissionMode
 class RadioCommunicationManager
 {
     public:
-        RadioCommunicationManager(std::string strRadioIdentifier, enum TransmissionMode mode);
+        RadioCommunicationManager(enum TransmissionMode mode);
         virtual ~RadioCommunicationManager();
         bool startRadio();
 
