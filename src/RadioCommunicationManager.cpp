@@ -9,6 +9,7 @@ RadioCommunicationManager::RadioCommunicationManager(std::string strRadioIdentif
     m_hndlDevice = NULL;
 
     m_bAckReceived = false;
+    m_enumTransmissionMode = mode;
 
     /*int nReturn = */libusb_init(&m_ctxContext);
 
@@ -202,7 +203,7 @@ bool RadioCommunicationManager::readData(void *vdData, int &nMaxLength)
         switch(nReturn)
         {
             case LIBUSB_ERROR_TIMEOUT:
-              std::cout << "USB timeout" << std::endl;
+              //std::cout << "USB timeout" << std::endl;
               break;
 
             default:

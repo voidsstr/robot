@@ -29,7 +29,7 @@
 					<Add library="rt" />
 					<Add library="libusb-1.0" />
 					<Add directory="dependencies/lib" />
-					<Add directory="dependencies/lib/rplidar/x64" />
+					<Add directory="dependencies/lib/rplidar/x86" />
 				</Linker>
 			</Target>
 			<Target title="Release">

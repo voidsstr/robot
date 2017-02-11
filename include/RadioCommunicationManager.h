@@ -37,6 +37,7 @@ class RadioCommunicationManager
         virtual ~RadioCommunicationManager();
         bool startRadio();
 
+        CCRTPPacket* readACK();
         CCRTPPacket *waitForPacket();
         CCRTPPacket *sendPacket(CCRTPPacket *crtpSend, bool bDeleteAfterwards = false);
         CCRTPPacket *sendAndReceive(CCRTPPacket *crtpSend, bool bDeleteAfterwards);
@@ -51,7 +52,7 @@ class RadioCommunicationManager
         void closeDevice();
         bool claimInterface(int nInterface);
 
-        CCRTPPacket* readACK();
+
         bool ackReceived();
         bool usbOK();
 
