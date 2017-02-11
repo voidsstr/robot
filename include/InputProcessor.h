@@ -4,6 +4,7 @@
 #include <curses.h>
 #include <stdexcept>
 #include "NavigationParameter.h"
+#include "HUDManager.h"
 
 class InputProcessor
 {

@@ -16,7 +16,11 @@ void HUDManager::logMessage(enum MessageType messageType, std::string message)
     {
         DisplayCoords coords = getDisplayCoordsFromMessageType(messageType);
 
-        mvprintw(coords.x, coords.y, message.c_str());
+        //Clear line
+        move(coords.y, 0);
+        clrtoeol();
+
+        mvprintw(coords.y, coords.x, message.c_str());
     }
 }
 
@@ -37,6 +41,10 @@ DisplayCoords HUDManager::getDisplayCoordsFromMessageType(enum MessageType messa
         case Telemetry:
             coords.x = 0;
             coords.y = 2;
+            break;
+        case InputFeedback:
+            coords.x = 0;
+            coords.y = 3;
             break;
     }
 

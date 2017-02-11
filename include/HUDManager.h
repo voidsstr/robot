@@ -10,7 +10,8 @@ enum MessageType
 {
     Telemetry,
     HardwareStatus,
-    UserInstruction
+    UserInstruction,
+    InputFeedback
 };
 
 struct DisplayCoords

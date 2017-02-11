@@ -12,7 +12,7 @@
 				<Option object_output="obj/Debug/" />
 				<Option type="1" />
 				<Option compiler="gcc" />
-				<Option parameters="robot" />
+				<Option parameters="client" />
 				<Compiler>
 					<Add option="-g" />
 					<Add option="-std=gnu++0x" />
@@ -30,6 +30,7 @@
 					<Add library="libusb-1.0" />
 					<Add directory="dependencies/lib" />
 					<Add directory="dependencies/lib/rplidar/x86" />
+					<Add directory="dependencies/lib/rplidar/x64" />
 				</Linker>
 			</Target>
 			<Target title="Release">
@@ -55,6 +56,7 @@
 		<Unit filename="include/CCRTPPacket.h" />
 		<Unit filename="include/ClientManager.h" />
 		<Unit filename="include/FaceTargetPerceptron.h" />
+		<Unit filename="include/HUDManager.h" />
 		<Unit filename="include/InputProcessor.h" />
 		<Unit filename="include/LidarManager.h" />
 		<Unit filename="include/NavigationCoordinator.h" />
@@ -67,6 +69,7 @@
 		<Unit filename="src/CCRTPPacket.cpp" />
 		<Unit filename="src/ClientManager.cpp" />
 		<Unit filename="src/FaceTargetPerceptron.cpp" />
+		<Unit filename="src/HUDManager.cpp" />
 		<Unit filename="src/InputProcessor.cpp" />
 		<Unit filename="src/LidarManager.cpp" />
 		<Unit filename="src/NavigationCoordinator.cpp" />

@@ -50,7 +50,11 @@ bool RadioCommunicationManager::startRadio()
             sts << (ddDescriptor.bcdDevice & 0x0ff);
             std::sscanf(sts.str().c_str(), "%f", &m_fDeviceVersion);
 
-            std::cout << "Got device version " << m_fDeviceVersion << std::endl;
+            std::stringstream hardwareMessage;
+            hardwareMessage << "Radio firmware version: " << m_fDeviceVersion;
+
+            HUDManager::logMessage(HardwareStatus, hardwareMessage.str());
+
             if(m_fDeviceVersion < 0.3)
             {
                 return false;

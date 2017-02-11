@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1486779693 source:/home/mike/dev/robot/main.cpp
+1486785355 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -120,6 +120,7 @@
 	"ClientManager.h"
 	"LidarManager.h"
 	"FaceTargetPerceptron.h"
+	"HUDManager.h"
 
 1465267005 /home/mike/dev/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
@@ -130,10 +131,11 @@
 	"InputProcessor.h"
 	"NavigationParameter.h"
 
-1465267005 /home/mike/dev/robot/include/InputProcessor.h
+1486785248 /home/mike/dev/robot/include/InputProcessor.h
 	<curses.h>
 	<stdexcept>
 	"NavigationParameter.h"
+	"HUDManager.h"
 
 1465267005 /home/mike/dev/robot/include/NavigationParameter.h
 
@@ -150,7 +152,7 @@
 1454473039 source:/home/mike/dev/robot/src/CommunicationManager.cpp
 	"CommunicationManager.h"
 
-1465267005 source:/home/mike/dev/robot/src/InputProcessor.cpp
+1486785248 source:/home/mike/dev/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
 1465268171 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
@@ -394,7 +396,7 @@
 1469564264 /home/mike/dev/robot/include/LocationManager.h
 	"libgpsmm.h"
 
-1486782204 source:/home/mike/dev/robot/src/RadioCommunicationManager.cpp
+1486784426 source:/home/mike/dev/robot/src/RadioCommunicationManager.cpp
 	"RadioCommunicationManager.h"
 
 1486780829 /home/mike/dev/robot/include/RadioCommunicationManager.h
@@ -473,10 +475,10 @@
 1486784526 source:/home/pi/dev/robot/src/RadioCommunicationManager.cpp
 	"RadioCommunicationManager.h"
 
-1486782382 /home/mike/dev/robot/include/HUDManager.h
+1486785248 /home/mike/dev/robot/include/HUDManager.h
 	<curses.h>
 	<string>
 
-1486782041 source:/home/mike/dev/robot/src/HUDManager.cpp
+1486785248 source:/home/mike/dev/robot/src/HUDManager.cpp
 	"HUDManager.h"
 

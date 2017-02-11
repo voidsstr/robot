@@ -14,6 +14,7 @@
 #include "ClientManager.h"
 #include "LidarManager.h"
 #include "FaceTargetPerceptron.h"
+#include "HUDManager.h"
 
 using namespace std;
 
@@ -70,9 +71,9 @@ void clientLoop()
 
     InputProcessor inputProcessor;
 
-    int ch;
+    HUDManager::logMessage(UserInstruction, "Client started. Options: Navigation (arrow keys), Stop (esc)");
 
-    mvprintw(0, 0, "Enter commands to send to robot...\n");
+    int ch;
 
     while(true)
     {
