@@ -39,7 +39,7 @@ void robotLoop(char* ipAddress)
 
     /*RobotCommunicationManager communicationManager;
 
-    navigationCoordinator.Start();*/
+    */
 
     /*LidarManager lidarManager;
     lidarManager.InitiateDataCollection();*/
@@ -50,6 +50,8 @@ void robotLoop(char* ipAddress)
     //int ch;
 
     NavigationCoordinator navigationCoordinator;
+    navigationCoordinator.Start();
+
     RadioCommunicationManager radio("radio://0/10/250K", Recieve);
     radio.startRadio();
 
@@ -90,10 +92,19 @@ void robotLoop(char* ipAddress)
         char cBuffer[nBufferSize];
         int nBytesRead = nBufferSize;
 
-        if(radio.readData(cBuffer, nBytesRead))
+        while(true)
         {
-            navigationCoordinator.UpdateNavigationParameters(DIRECTION::DOWN);
-            navigationCoordinator.ProcessUpdate();
+            CCRTPPacket* packet = radio.waitForPacket();
+
+            if(packet != NULL && packet->dataLength() > 0)
+            {
+                int data = atoi(packet->data());
+
+                navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
+                navigationCoordinator.ProcessUpdate();
+            }
+
+            usleep(100000);
         }
     }
 }
