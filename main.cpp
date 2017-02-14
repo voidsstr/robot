@@ -18,22 +18,13 @@
 
 using namespace std;
 
-void setupCurses()
-{
-    WINDOW *w = initscr();
-    cbreak();
-    nodelay(w, TRUE);
-    raw();
-    keypad(stdscr, TRUE);
-    noecho();
-}
-
 void robotLoop()
 {
-    setupCurses();
-
     NavigationCoordinator navigationCoordinator;
     navigationCoordinator.Start();
+
+    LidarManager lidarManager;
+    lidarManager.InitiateDataCollection();
 
     RadioCommunicationManager radio(Recieve);
     radio.startRadio();
@@ -42,7 +33,7 @@ void robotLoop()
 
     while(true)
     {
-        usleep(25000);
+        lidarManager.PrintScanData();
 
         CCRTPPacket* packet = radio.waitForPacket();
 
@@ -60,8 +51,6 @@ void robotLoop()
 
 void clientLoop()
 {
-    setupCurses();
-
     RadioCommunicationManager radio(Transmit);
 
     radio.startRadio();

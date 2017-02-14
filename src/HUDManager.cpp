@@ -2,7 +2,12 @@
 
 HUDManager::HUDManager()
 {
-    //ctor
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
 }
 
 HUDManager::~HUDManager()

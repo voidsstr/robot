@@ -34,15 +34,14 @@ bool LidarManager::InitiateDataCollection()
 
     if (!_driver)
     {
-        fprintf(stderr, "insufficent memory, exit\n");
+        HUDManager::logMessage(Telemetry, "Insufficent memory.");
         returnValue = false;
     }
 
     // make connection...
     if (IS_FAIL(_driver->connect(opt_com_path, opt_com_baudrate)))
     {
-        fprintf(stderr, "Error, cannot bind to the specified serial port %s.\n"
-                , opt_com_path);
+        HUDManager::logMessage(Telemetry, "Error, cannot bind to the specified serial port.");
 
         returnValue = false;
     }
@@ -88,9 +87,11 @@ float LidarManager::IsObjectAhead(int thresholdInches)
 
         float distanceInches = distance / MM_TO_INCH;
 
-        if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsAheadOfVehicle(angle))
+        if(distanceInches > 0 && distanceInches < 10 && quality > 0 && IsAheadOfVehicle(angle))
         {
-            mvprintw(0, 0, "Object detected %f inches ahead vehicle.  ", distanceInches);
+            std::stringstream message;
+            message << "Object detected " << std::to_string(distanceInches) << " ahead of vehicle";
+            HUDManager::logMessage(Telemetry, message.str());
 
             totalDistanceOfQualityPoints += distanceInches;
             totalQualityPoints++;
@@ -123,7 +124,9 @@ float LidarManager::IsObjectBehind(int thresholdInches)
 
         if(distanceInches > 0 && distanceInches < 200 && quality > 0 && IsBehindVehicle(angle))
         {
-            mvprintw(1, 0, "Object detected %f inches behind vehicle.  ", distanceInches);
+            std::stringstream message;
+            message << "Object detected " << std::to_string(distanceInches) << " behind of vehicle";
+            HUDManager::logMessage(Telemetry, message.str());
 
             totalDistanceOfQualityPoints += distanceInches;
             totalQualityPoints++;
@@ -158,9 +161,9 @@ void LidarManager::PrintScanData()
 
         if(distanceInches > 0 && distanceInches < 10 && quality > 15)
         {
-            clear();
-            mvprintw(0, 0, "Object detected %f inches at %f angle of %f quality", distanceInches, angle, quality);
-            refresh();
+            std::stringstream message;
+            message << "Object detected " << std::to_string(distanceInches) << " inches at angle " << std::to_string(angle) << " of vehicle at " << std::to_string(quality);
+            HUDManager::logMessage(Telemetry, message.str());
         }
     }
 }
@@ -183,10 +186,13 @@ bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)
     op_result = drv->getHealth(healthinfo);
     if (IS_OK(op_result))   // the macro IS_OK is the preperred way to judge whether the operation is succeed.
     {
-        printf("RPLidar health status : %d\n", healthinfo.status);
+        std::stringstream message;
+        message << "RPLidar health status: " << std::to_string(healthinfo.status);
+        HUDManager::logMessage(Telemetry, message.str());
+
         if (healthinfo.status == RPLIDAR_STATUS_ERROR)
         {
-            fprintf(stderr, "Error, rplidar internal error detected. Please reboot the device to retry.\n");
+            HUDManager::logMessage(Telemetry, "Internal lidar error occurred. Please restart.");
             // enable the following code if you want rplidar to be reboot by software
             drv->reset();
             return false;
@@ -199,7 +205,7 @@ bool LidarManager::CheckRPLIDARHealth(RPlidarDriver * drv)
     }
     else
     {
-        fprintf(stderr, "Error, cannot retrieve the lidar health code: %x\n", op_result);
+        HUDManager::logMessage(Telemetry, "Unable to determine lidar health.");
         return false;
     }
 }

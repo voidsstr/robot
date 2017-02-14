@@ -104,7 +104,7 @@
 	<thread>
 	<stdio.h>
 
-1486785355 source:/home/mike/dev/robot/main.cpp
+1487108982 source:/home/mike/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -131,13 +131,13 @@
 	"InputProcessor.h"
 	"NavigationParameter.h"
 
-1486785248 /home/mike/dev/robot/include/InputProcessor.h
+1487041960 /home/mike/dev/robot/include/InputProcessor.h
 	<curses.h>
 	<stdexcept>
 	"NavigationParameter.h"
 	"HUDManager.h"
 
-1486795293 /home/mike/dev/robot/include/NavigationParameter.h
+1487041960 /home/mike/dev/robot/include/NavigationParameter.h
 
 1454641743 /home/mike/dev/robot/include/CommunicationManager.h
 	"NavigationCoordinator.h"
@@ -152,10 +152,10 @@
 1454473039 source:/home/mike/dev/robot/src/CommunicationManager.cpp
 	"CommunicationManager.h"
 
-1486785248 source:/home/mike/dev/robot/src/InputProcessor.cpp
+1487041960 source:/home/mike/dev/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1465268171 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
+1487041960 source:/home/mike/dev/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
 1465267005 /home/mike/dev/robot/include/RobotCommunicationManager.h
@@ -287,12 +287,13 @@
 
 1455327611 source:/home/pi/dev/robot/src/RobotConnection.cpp
 
-1486656267 /home/mike/dev/robot/include/LidarManager.h
+1487109145 /home/mike/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
-	<curses.h>
 	<unistd.h>
+	<sstream>
+	"HUDManager.h"
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar.h
 	"rptypes.h"
@@ -310,7 +311,7 @@
 
 1462134170 /home/mike/dev/robot/dependencies/include/rplidar_driver.h
 
-1486656267 source:/home/mike/dev/robot/src/LidarManager.cpp
+1487109118 source:/home/mike/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1462133633 shed changes
@@ -398,10 +399,10 @@
 1469564264 /home/mike/dev/robot/include/LocationManager.h
 	"libgpsmm.h"
 
-1486785390 source:/home/mike/dev/robot/src/RadioCommunicationManager.cpp
+1487103719 source:/home/mike/dev/robot/src/RadioCommunicationManager.cpp
 	"RadioCommunicationManager.h"
 
-1486780829 /home/mike/dev/robot/include/RadioCommunicationManager.h
+1487041960 /home/mike/dev/robot/include/RadioCommunicationManager.h
 	<list>
 	<string>
 	<cstdio>
@@ -414,11 +415,11 @@
 	"HUDManager.h"
 	"CCRTPPacket.h"
 
-1486771499 source:/home/mike/dev/robot/src/CCRTPPacket.cpp
+1487081817 source:/home/mike/dev/robot/src/CCRTPPacket.cpp
 	"CCRTPPacket.h"
 	"CCRTPPacket.h"
 
-1486771499 /home/mike/dev/robot/include/CCRTPPacket.h
+1487081817 /home/mike/dev/robot/include/CCRTPPacket.h
 	<cstring>
 
 1486951851 /home/pi/dev/robot/include/RadioCommunicationManager.h
@@ -479,11 +480,11 @@
 1487081612 source:/home/pi/dev/robot/src/RadioCommunicationManager.cpp
 	"RadioCommunicationManager.h"
 
-1486785248 /home/mike/dev/robot/include/HUDManager.h
+1487041960 /home/mike/dev/robot/include/HUDManager.h
 	<curses.h>
 	<string>
 
-1486785248 source:/home/mike/dev/robot/src/HUDManager.cpp
+1487108982 source:/home/mike/dev/robot/src/HUDManager.cpp
 	"HUDManager.h"
 
 1486951851 /home/pi/dev/robot/include/HUDManager.h
