@@ -1,3 +1,5 @@
+#include "CCRTPPacket.h"
+
 // Copyright (c) 2013, Jan Winkler <winkler@cs.uni-bremen.de>
 // All rights reserved.
 //
@@ -43,9 +45,7 @@ CCRTPPacket::CCRTPPacket(char *cData, int nDataLength, int nPort) {
 
 CCRTPPacket::CCRTPPacket(char cData, int nPort) {
   this->basicSetup();
-  this->setPort(nPort);
-
-  this->setData(&cData, 1);
+  this->setData(&cData, 0);
 }
 
 CCRTPPacket::~CCRTPPacket() {
@@ -81,33 +81,6 @@ void CCRTPPacket::clearData() {
     delete[] m_cData;
     m_cData = NULL;
     m_nDataLength = 0;
-  }
-}
-
-char *CCRTPPacket::sendableData() {
-  char *cSendable = new char[this->sendableDataLength()]();
-
-  if(m_bIsPingPacket) {
-    cSendable[0] = 0xff;
-  } else {
-    // Header byte
-    cSendable[0] = (m_nPort << 4) | 0b00001100 | (m_nChannel & 0x03);
-
-    // Payload
-    std::memcpy(&cSendable[1], m_cData, m_nDataLength);
-
-    // Finishing byte
-    //cSendable[m_nDataLength + 1] = 0x27;
-  }
-
-  return cSendable;
-}
-
-int CCRTPPacket::sendableDataLength() {
-  if(m_bIsPingPacket) {
-    return 1;
-  } else {
-    return m_nDataLength + 1;//2;
   }
 }
 
