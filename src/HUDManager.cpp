@@ -21,6 +21,9 @@ void HUDManager::logMessage(enum MessageType messageType, std::string message)
         clrtoeol();
 
         mvprintw(coords.y, coords.x, message.c_str());
+
+        //Force printing (not sure why this works)
+        getch();
     }
 }
 

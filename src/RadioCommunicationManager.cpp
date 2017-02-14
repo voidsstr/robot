@@ -387,7 +387,8 @@ CCRTPPacket *RadioCommunicationManager::waitForPacket()
 {
     bool bGoon = true;
     CCRTPPacket *crtpReceived = NULL;
-    CCRTPPacket *crtpDummy = new CCRTPPacket(0);
+    char* command = "dfg";
+    CCRTPPacket* crtpDummy = new CCRTPPacket(command, sizeof(command), 1);
     crtpDummy->setIsPingPacket(true);
 
     while(bGoon)

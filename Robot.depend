@@ -203,7 +203,7 @@
 
 1455331811 ated upstream
 
-1486787308 source:/home/pi/dev/robot/main.cpp
+1487082954 source:/home/pi/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -219,6 +219,7 @@
 	"ClientManager.h"
 	"LidarManager.h"
 	"FaceTargetPerceptron.h"
+	"HUDManager.h"
 
 1486781574 /home/pi/dev/robot/include/NavigationCoordinator.h
 	<wiringPi.h>
@@ -229,12 +230,13 @@
 	"InputProcessor.h"
 	"NavigationParameter.h"
 
-1486781574 /home/pi/dev/robot/include/InputProcessor.h
+1486951851 /home/pi/dev/robot/include/InputProcessor.h
 	<curses.h>
 	<stdexcept>
 	"NavigationParameter.h"
+	"HUDManager.h"
 
-1486781574 /home/pi/dev/robot/include/NavigationParameter.h
+1486954213 /home/pi/dev/robot/include/NavigationParameter.h
 
 1486781574 /home/pi/dev/robot/include/RobotCommunicationManager.h
 	"NavigationCoordinator.h"
@@ -271,10 +273,10 @@
 1455333463 source:/home/pi/dev/robot/src/ClientManager.cpp
 	"ClientManager.h"
 
-1486781574 source:/home/pi/dev/robot/src/InputProcessor.cpp
+1486954213 source:/home/pi/dev/robot/src/InputProcessor.cpp
 	"InputProcessor.h"
 
-1486781574 source:/home/pi/dev/robot/src/NavigationCoordinator.cpp
+1486954213 source:/home/pi/dev/robot/src/NavigationCoordinator.cpp
 	"NavigationCoordinator.h"
 
 1486781574 source:/home/pi/dev/robot/src/RelayServer.cpp
@@ -419,7 +421,7 @@
 1486771499 /home/mike/dev/robot/include/CCRTPPacket.h
 	<cstring>
 
-1486785663 /home/pi/dev/robot/include/RadioCommunicationManager.h
+1486951851 /home/pi/dev/robot/include/RadioCommunicationManager.h
 	<list>
 	<string>
 	<cstdio>
@@ -428,9 +430,11 @@
 	<unistd.h>
 	<iostream>
 	<sstream>
+	<curses.h>
+	"HUDManager.h"
 	"CCRTPPacket.h"
 
-1486781574 /home/pi/dev/robot/include/CCRTPPacket.h
+1487081857 /home/pi/dev/robot/include/CCRTPPacket.h
 	<cstring>
 
 1486781574 /home/pi/dev/robot/include/LidarManager.h
@@ -462,7 +466,7 @@
 	<vector>
 	<iostream>
 
-1486781574 source:/home/pi/dev/robot/src/CCRTPPacket.cpp
+1487081857 source:/home/pi/dev/robot/src/CCRTPPacket.cpp
 	"CCRTPPacket.h"
 	"CCRTPPacket.h"
 
@@ -472,7 +476,7 @@
 1486781574 source:/home/pi/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
-1486784526 source:/home/pi/dev/robot/src/RadioCommunicationManager.cpp
+1487081612 source:/home/pi/dev/robot/src/RadioCommunicationManager.cpp
 	"RadioCommunicationManager.h"
 
 1486785248 /home/mike/dev/robot/include/HUDManager.h
@@ -480,5 +484,12 @@
 	<string>
 
 1486785248 source:/home/mike/dev/robot/src/HUDManager.cpp
+	"HUDManager.h"
+
+1486951851 /home/pi/dev/robot/include/HUDManager.h
+	<curses.h>
+	<string>
+
+1487082954 source:/home/pi/dev/robot/src/HUDManager.cpp
 	"HUDManager.h"
 

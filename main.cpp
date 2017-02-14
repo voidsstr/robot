@@ -38,25 +38,22 @@ void robotLoop()
     RadioCommunicationManager radio(Recieve);
     radio.startRadio();
 
+    HUDManager::logMessage(UserInstruction, "Robot uplink started...");
+
     while(true)
     {
-        int nBufferSize = 64;
-        char cBuffer[nBufferSize];
-        int nBytesRead = nBufferSize;
+        usleep(25000);
 
-        while(true)
+        CCRTPPacket* packet = radio.waitForPacket();
+
+        if(packet != NULL && packet->dataLength() > 0)
         {
-            CCRTPPacket* packet = radio.waitForPacket();
+            HUDManager::logMessage(InputFeedback, "Received data from client...");
 
-            if(packet != NULL && packet->dataLength() > 0)
-            {
-                int data = atoi(packet->data());
+            int data = atoi(packet->data());
 
-                navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
-                navigationCoordinator.ProcessUpdate();
-            }
-
-            usleep(25000);
+            navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
+            navigationCoordinator.ProcessUpdate();
         }
     }
 }
