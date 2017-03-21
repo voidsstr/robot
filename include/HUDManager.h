@@ -30,6 +30,10 @@ class HUDManager
         static DisplayCoords getDisplayCoordsFromMessageType(enum MessageType messageType);
     protected:
     private:
+        static bool initialized;
+        static void initialize();
 };
+
+
 
 #endif // HUDMANAGER_H

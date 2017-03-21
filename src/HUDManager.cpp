@@ -1,13 +1,10 @@
 #include "HUDManager.h"
 
+bool HUDManager::initialized = false;
+
 HUDManager::HUDManager()
 {
-    WINDOW *w = initscr();
-    cbreak();
-    nodelay(w, TRUE);
-    raw();
-    keypad(stdscr, TRUE);
-    noecho();
+
 }
 
 HUDManager::~HUDManager()
@@ -15,8 +12,25 @@ HUDManager::~HUDManager()
     //dtor
 }
 
+void HUDManager::initialize()
+{
+    WINDOW *w = initscr();
+    cbreak();
+    nodelay(w, TRUE);
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
+
+    HUDManager().initialized = true;
+}
+
 void HUDManager::logMessage(enum MessageType messageType, std::string message)
 {
+    if(!HUDManager().initialized)
+    {
+        initialize();
+    }
+
     if(!message.empty())
     {
         DisplayCoords coords = getDisplayCoordsFromMessageType(messageType);
