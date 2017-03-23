@@ -6,6 +6,7 @@
 #include "rplidar.h" //RPLIDAR standard sdk, all-in-one header
 #include <unistd.h>
 #include <sstream>
+#include <unordered_map>
 
 #include "HUDManager.h"
 
@@ -28,6 +29,7 @@ public:
     float IsObjectBehind(int thresholdInches);
     void FetchNewScanData();
     void PrintScanData();
+    std::vector<int> GetPerimeter();
 protected:
 private:
     bool CheckRPLIDARHealth(RPlidarDriver * drv);

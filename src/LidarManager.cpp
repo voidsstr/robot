@@ -108,6 +108,21 @@ float LidarManager::IsObjectAhead(int thresholdInches)
     return 0;
 }
 
+/*TODO:
+
+1) Add method to return a 360 element array (or object) of booleans for each of the degrees that have an object 'near' the robot
+2) Add method to paint a circle in the HUD to represent objects near the robot
+3) Use 'fido' nn library to train using the 360 element array:
+    a) 360 booleans (1/0) as inputs
+    b) 4 outputs: Forward, Backward, RotateRight, RotateLeft
+    c) First goal is to train the robot to turn a right corner, given that the robot is along the wall next to the corner
+4) Training:
+    a) Create inputmanager options to take 'actions': Forward 1 inch, Backward 1 inch, Rotate right X degrees, Rotate left X degrees
+    b) Train by making moves manually and having the nn listen / train based on lidar data (360 degree array) and moves I make manually
+    c) Train the corner over and over again until the weights stop changing
+    d) Serialize nn into file to be read and used to make actual right turns
+    e) Repeat for other driving type activities*/
+
 float LidarManager::IsObjectBehind(int thresholdInches)
 {
     size_t nodeCount = _countof(_nodes);
@@ -166,6 +181,41 @@ void LidarManager::PrintScanData()
             HUDManager::logMessage(Telemetry, message.str());
         }
     }
+}
+std::vector<int> LidarManager::GetPerimeter()
+{
+    std::vector<int> returnValue;
+    unordered_map<int, bool> seen;
+
+    rplidar_response_measurement_node_t nodes[360*2];
+    size_t   nodeCount = _countof(nodes);
+    u_result     op_result;
+
+    op_result = _driver->grabScanData(nodes, nodeCount);
+
+    for (int pos = 0; pos < (int)nodeCount ; ++pos)
+    {
+        float angle = (nodes[pos].angle_q6_checkbit >> RPLIDAR_RESP_MEASUREMENT_ANGLE_SHIFT)/64.0f;
+        float distance = nodes[pos].distance_q2/4.0f;
+        float quality = nodes[pos].sync_quality >> RPLIDAR_RESP_MEASUREMENT_QUALITY_SHIFT;
+
+        float distanceInches = distance / MM_TO_INCH;
+
+
+        if(distanceInches > 0 && distanceInches < 10 && quality > 15)
+        {
+            if(!seen.at(angle))
+            {
+                returnValue.push_back(angle);
+            }
+            else
+            {
+                seen.insert({ angle, true });
+            }
+        }
+    }
+
+    return returnValue;
 }
 
 bool LidarManager::IsAheadOfVehicle(float angle)

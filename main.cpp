@@ -33,7 +33,8 @@ void robotLoop()
 
     while(true)
     {
-        lidarManager.PrintScanData();
+        std::vector<int> perimeter = lidarManager.GetPerimeter();
+        HUDManager::DrawCircle(20,20,20,20,perimeter);
 
         CCRTPPacket* packet = radio.waitForPacket();
 

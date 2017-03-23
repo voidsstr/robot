@@ -12,6 +12,24 @@ HUDManager::~HUDManager()
     //dtor
 }
 
+void HUDManager::DrawCircle(int originX, int originY, int width, int height, std::vector<int> degrees)
+{
+    float deg;
+	int y, x;
+
+    /* Draw circle */
+	for (deg = 0; deg < 360.0f; deg += 1.0f)
+	{
+        if(degrees.at(deg) == 1)
+        {
+            x = originX + width+(int)(width * cos(DEGTORAD(deg)));
+            y = originY + height+(int)(height * sin(DEGTORAD(deg)));
+
+            mvaddch(y,x,DOT);
+		}
+	}
+}
+
 void HUDManager::initialize()
 {
     WINDOW *w = initscr();
