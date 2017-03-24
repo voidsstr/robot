@@ -182,9 +182,8 @@ void LidarManager::PrintScanData()
         }
     }
 }
-std::vector<int> LidarManager::GetPerimeter()
+unordered_map<int, bool> LidarManager::GetPerimeter()
 {
-    std::vector<int> returnValue;
     unordered_map<int, bool> seen;
 
     rplidar_response_measurement_node_t nodes[360*2];
@@ -206,16 +205,12 @@ std::vector<int> LidarManager::GetPerimeter()
         {
             if(!seen.at(angle))
             {
-                returnValue.push_back(angle);
-            }
-            else
-            {
                 seen.insert({ angle, true });
             }
         }
     }
 
-    return returnValue;
+    return seen;
 }
 
 bool LidarManager::IsAheadOfVehicle(float angle)

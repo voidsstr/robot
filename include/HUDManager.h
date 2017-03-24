@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <math.h>
+#include <unordered_map>
 
 using namespace std;
 
@@ -34,7 +35,7 @@ class HUDManager
 
         static void logMessage(enum MessageType messageType, std::string message);
         static DisplayCoords getDisplayCoordsFromMessageType(enum MessageType messageType);
-        static void DrawCircle(int originX, int originY, int width, int height, std::vector<int> degrees);
+        static void DrawCircle(int originX, int originY, int width, int height, unordered_map<int, bool> perimiter);
     protected:
     private:
         static bool initialized;

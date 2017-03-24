@@ -73,6 +73,10 @@ void loop()
       accellerate(leftMotor);
       decellerate(rightMotor);
     }
+    
+    delay(1000);
+    
+    stop();
   }
 }
 
@@ -86,7 +90,7 @@ void accellerate(Servo* servo)
 {
   int currentValue = servo->read();
   
-  currentValue -= 1;
+  currentValue -= 3;
   
   servo->write(currentValue);
 }
@@ -95,7 +99,7 @@ void decellerate(Servo* servo)
 {
   int currentValue = servo->read();
   
-  currentValue += 1;
+  currentValue += 3;
   
   servo->write(currentValue);
 }

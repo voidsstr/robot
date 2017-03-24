@@ -29,7 +29,7 @@ public:
     float IsObjectBehind(int thresholdInches);
     void FetchNewScanData();
     void PrintScanData();
-    std::vector<int> GetPerimeter();
+    unordered_map<int, bool> GetPerimeter();
 protected:
 private:
     bool CheckRPLIDARHealth(RPlidarDriver * drv);
