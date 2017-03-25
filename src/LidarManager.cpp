@@ -182,15 +182,18 @@ void LidarManager::PrintScanData()
         }
     }
 }
-unordered_map<int, bool> LidarManager::GetPerimeter()
+unordered_map<int, float> LidarManager::GetPerimeter()
 {
-    unordered_map<int, bool> seen;
+    unordered_map<int, float> seen;
 
-    rplidar_response_measurement_node_t nodes[360*2];
+    rplidar_response_measurement_node_t nodes[360];
     size_t   nodeCount = _countof(nodes);
     u_result     op_result;
+    int fetchCount = 0;
 
     op_result = _driver->grabScanData(nodes, nodeCount);
+
+    fetchCount++;
 
     for (int pos = 0; pos < (int)nodeCount ; ++pos)
     {
@@ -200,12 +203,13 @@ unordered_map<int, bool> LidarManager::GetPerimeter()
 
         float distanceInches = distance / MM_TO_INCH;
 
-
-        if(distanceInches > 0 && distanceInches < 10 && quality > 15)
+        if(distanceInches > 0 && quality > 15)
         {
-            if(!seen.at(angle))
+            if(seen.find(angle) == seen.end())
             {
-                seen.insert({ angle, true });
+                seen.insert({ angle, distanceInches });
+                seen.insert({ angle+1, distanceInches });
+                seen.insert({ angle-1, distanceInches });
             }
         }
     }

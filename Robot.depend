@@ -203,7 +203,7 @@
 
 1455331811 ated upstream
 
-1487082954 source:/home/pi/dev/robot/main.cpp
+1490410716 source:/home/pi/dev/robot/main.cpp
 	<stdio.h>
 	<stdlib.h>
 	<iostream>
@@ -438,12 +438,14 @@
 1487081857 /home/pi/dev/robot/include/CCRTPPacket.h
 	<cstring>
 
-1486781574 /home/pi/dev/robot/include/LidarManager.h
+1490409606 /home/pi/dev/robot/include/LidarManager.h
 	<stdio.h>
 	<stdlib.h>
 	"rplidar.h"
-	<curses.h>
 	<unistd.h>
+	<sstream>
+	<unordered_map>
+	"HUDManager.h"
 
 1486781574 /home/pi/dev/robot/dependencies/include/rplidar.h
 	"rptypes.h"
@@ -474,7 +476,7 @@
 1486781574 source:/home/pi/dev/robot/src/FaceTargetPerceptron.cpp
 	"FaceTargetPerceptron.h"
 
-1486781574 source:/home/pi/dev/robot/src/LidarManager.cpp
+1490409827 source:/home/pi/dev/robot/src/LidarManager.cpp
 	"LidarManager.h"
 
 1487081612 source:/home/pi/dev/robot/src/RadioCommunicationManager.cpp
@@ -487,10 +489,16 @@
 1487108982 source:/home/mike/dev/robot/src/HUDManager.cpp
 	"HUDManager.h"
 
-1486951851 /home/pi/dev/robot/include/HUDManager.h
+1490410737 /home/pi/dev/robot/include/HUDManager.h
 	<curses.h>
 	<string>
+	<iostream>
+	<vector>
+	<math.h>
+	<unordered_map>
+	<unistd.h>
+	<sstream>
 
-1487082954 source:/home/pi/dev/robot/src/HUDManager.cpp
+1490410916 source:/home/pi/dev/robot/src/HUDManager.cpp
 	"HUDManager.h"
 

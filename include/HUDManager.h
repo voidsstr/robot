@@ -3,9 +3,12 @@
 
 #include <curses.h>
 #include <string>
+#include <iostream>
 #include <vector>
 #include <math.h>
 #include <unordered_map>
+#include <unistd.h>
+#include <sstream>
 
 using namespace std;
 
@@ -35,7 +38,8 @@ class HUDManager
 
         static void logMessage(enum MessageType messageType, std::string message);
         static DisplayCoords getDisplayCoordsFromMessageType(enum MessageType messageType);
-        static void DrawCircle(int originX, int originY, int width, int height, unordered_map<int, bool> perimiter);
+        static void DrawLidarMap(int originX, int originY, int radius, unordered_map<int, float> perimiter, bool drawLabels, int distanceThreshold);
+        static void DrawLidarMap(int originX, int originY, int radius, unordered_map<int, float> perimiter, bool drawLabels, int distanceThreshold, bool includeDepth);
     protected:
     private:
         static bool initialized;

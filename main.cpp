@@ -33,8 +33,8 @@ void robotLoop()
 
     while(true)
     {
-        std::unordered_map<int, bool> perimeter = lidarManager.GetPerimeter();
-        HUDManager::DrawCircle(20,20,20,20,perimeter);
+        std::unordered_map<int, float> perimeter = lidarManager.GetPerimeter();
+        HUDManager::DrawLidarMap(50,10,10, perimeter, true, 20, true);
 
         CCRTPPacket* packet = radio.waitForPacket();
 
