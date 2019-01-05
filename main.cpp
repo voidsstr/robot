@@ -31,6 +31,10 @@ void robotLoop()
 
     HUDManager::logMessage(UserInstruction, "Robot uplink started...");
 
+    InputProcessor inputProcessor;
+
+    HUDManager::logMessage(UserInstruction, "Options: Navigation (arrow keys), Stop (esc)");
+
     while(true)
     {
         std::unordered_map<int, float> perimeter = lidarManager.GetPerimeter();
@@ -38,6 +42,7 @@ void robotLoop()
 
         if(radioUp)
         {
+            //Process any pending requests sent via radio
             CCRTPPacket* packet = radio.waitForPacket();
 
             if(packet != NULL && packet->dataLength() > 0)
@@ -49,6 +54,18 @@ void robotLoop()
                 navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
                 navigationCoordinator.ProcessUpdate();
             }
+        }
+
+        //Process any keyboard commands
+        int ch = getch();
+
+        DIRECTION input = inputProcessor.ProcessInput(ch);
+
+        if(input != DIRECTION::UNKNOWN)
+        {
+            //Directly control robot
+            navigationCoordinator.UpdateNavigationParameters(input);
+            navigationCoordinator.ProcessUpdate();
         }
     }
 }
