@@ -27,7 +27,7 @@ void robotLoop()
     lidarManager.InitiateDataCollection();
 
     RadioCommunicationManager radio(Recieve);
-    radio.startRadio();
+    bool radioUp = radio.startRadio();
 
     HUDManager::logMessage(UserInstruction, "Robot uplink started...");
 
@@ -36,16 +36,19 @@ void robotLoop()
         std::unordered_map<int, float> perimeter = lidarManager.GetPerimeter();
         HUDManager::DrawLidarMap(50,10,10, perimeter, true, 20, true);
 
-        CCRTPPacket* packet = radio.waitForPacket();
-
-        if(packet != NULL && packet->dataLength() > 0)
+        if(radioUp)
         {
-            HUDManager::logMessage(InputFeedback, "Received data from client...");
+            CCRTPPacket* packet = radio.waitForPacket();
 
-            int data = atoi(packet->data());
+            if(packet != NULL && packet->dataLength() > 0)
+            {
+                HUDManager::logMessage(InputFeedback, "Received data from client...");
 
-            navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
-            navigationCoordinator.ProcessUpdate();
+                int data = atoi(packet->data());
+
+                navigationCoordinator.UpdateNavigationParameters((DIRECTION)data);
+                navigationCoordinator.ProcessUpdate();
+            }
         }
     }
 }
