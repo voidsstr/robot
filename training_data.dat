@@ -1,0 +1,5 @@
+#Inputs: 360 boolean values (0/1); Outputs: 4 boolean values (0/1), MOVE_UP, MOVE_BACK, ROTATE_RIGHT, ROTATE_LEFT
+#TBD: number of hidden layers
+#TODO: add features in NavigationCoordinator to take an atomic action (corresponding to output variables)
+#TODO: create training mode to generate training data
+#Use softmax for activation function so we get [0..1] for each of the output variables (probability)
