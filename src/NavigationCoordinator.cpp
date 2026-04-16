@@ -1,19 +1,22 @@
 #include "NavigationCoordinator.h"
+#include <curses.h>
 
 NavigationCoordinator::NavigationCoordinator()
+    : _navigationCount(0)
 {
-    mvprintw(0, 0, "Telemetry Activated. No commands recieved.\n");
+    mvprintw(0, 0, "Telemetry Activated. No commands received.\n");
 }
 
 NavigationCoordinator::~NavigationCoordinator()
 {
-    //dtor
+    // Ensure all pins are LOW on destruction
+    #ifdef __arm__
     digitalWrite(AcceleratePin, LOW);
     digitalWrite(DecelleratePin, LOW);
-
     digitalWrite(RotateRightPin, LOW);
     digitalWrite(RotateLeftPin, LOW);
     digitalWrite(StopPin, LOW);
+    #endif
 }
 
 bool NavigationCoordinator::IsMovingBackward()
@@ -38,77 +41,78 @@ void NavigationCoordinator::PrintTelemetry()
 
 void NavigationCoordinator::Accelerate()
 {
-    mvprintw(0, 0, "Accellerated\n");
+    mvprintw(0, 0, "Accelerated                    \n");
     _navigationCount++;
     NotifyPin(AcceleratePin);
 }
 
 void NavigationCoordinator::Decelerate()
 {
-    mvprintw(0, 0, "Decelerated\n");
+    mvprintw(0, 0, "Decelerated                    \n");
     _navigationCount--;
     NotifyPin(DecelleratePin);
 }
 
 void NavigationCoordinator::RotateRight()
 {
-    mvprintw(0, 0, "Rotated right\n");
-
+    mvprintw(0, 0, "Rotated right                  \n");
     NotifyPin(RotateRightPin);
 }
 
 void NavigationCoordinator::RotateLeft()
 {
-    mvprintw(0, 0, "Rotated left\n");
-
+    mvprintw(0, 0, "Rotated left                   \n");
     NotifyPin(RotateLeftPin);
 }
 
 void NavigationCoordinator::StopRobot()
 {
+    mvprintw(0, 0, "Stopped                        \n");
     _navigationCount = 0;
     NotifyPin(StopPin);
 }
 
 void NavigationCoordinator::NotifyPin(int pin)
 {
+    #ifdef __arm__
     digitalWrite(pin, HIGH);
-    delay(10);
+    delay(10);  // 10ms pulse
     digitalWrite(pin, LOW);
+    #endif
 }
 
 void NavigationCoordinator::ProcessUpdate()
 {
-    if(_pendingUpdates.size() > 0)
+    if (_pendingUpdates.size() > 0)
     {
-        while(_pendingUpdates.size() > 0)
+        while (_pendingUpdates.size() > 0)
         {
             DIRECTION currentUpdate = _pendingUpdates.top();
             _pendingUpdates.pop();
 
-            if(currentUpdate == DIRECTION::UP)
+            if (currentUpdate == DIRECTION::UP)
             {
                 Accelerate();
             }
-            else if(currentUpdate == DIRECTION::DOWN)
+            else if (currentUpdate == DIRECTION::DOWN)
             {
                 Decelerate();
             }
-            else if(currentUpdate == DIRECTION::LEFT)
+            else if (currentUpdate == DIRECTION::LEFT)
             {
                 RotateLeft();
             }
-            else if(currentUpdate == DIRECTION::RIGHT)
+            else if (currentUpdate == DIRECTION::RIGHT)
             {
                 RotateRight();
             }
-            else if(currentUpdate == DIRECTION::STOP)
+            else if (currentUpdate == DIRECTION::STOP)
             {
                 StopRobot();
             }
             else
             {
-                mvprintw(0, 0, "No movement\n");
+                mvprintw(0, 0, "No movement                    \n");
             }
         }
     }
@@ -117,21 +121,28 @@ void NavigationCoordinator::ProcessUpdate()
 void NavigationCoordinator::Start()
 {
     #ifdef __arm__
-
-    if(wiringPiSetup() == -1)  //when initialize wiring failed,print messageto screen
+    if (wiringPiSetup() == -1)
     {
-        printw("setup wiringPi failed !\n");
-    }
-    else
-    {
-        pinMode(AcceleratePin, OUTPUT);
-        pinMode(DecelleratePin, OUTPUT);
-
-        pinMode(RotateRightPin, OUTPUT);
-        pinMode(RotateLeftPin, OUTPUT);
-
-        pinMode(StopPin, OUTPUT);
+        printw("Failed to setup wiringPi!\n");
+        return;
     }
 
+    // Configure all pins as OUTPUT
+    pinMode(AcceleratePin, OUTPUT);
+    pinMode(DecelleratePin, OUTPUT);
+    pinMode(RotateRightPin, OUTPUT);
+    pinMode(RotateLeftPin, OUTPUT);
+    pinMode(StopPin, OUTPUT);
+
+    // Ensure all pins start LOW
+    digitalWrite(AcceleratePin, LOW);
+    digitalWrite(DecelleratePin, LOW);
+    digitalWrite(RotateRightPin, LOW);
+    digitalWrite(RotateLeftPin, LOW);
+    digitalWrite(StopPin, LOW);
+
+    printw("GPIO initialized successfully.\n");
+    #else
+    printw("GPIO not available (not running on ARM).\n");
     #endif
 }

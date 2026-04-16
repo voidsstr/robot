@@ -10,13 +10,14 @@
 #include "InputProcessor.h"
 #include "NavigationParameter.h"
 
-#define AcceleratePin 1
-#define DecelleratePin 0
-#define RotateRightPin 3
-#define RotateLeftPin 4
-#define StopPin 5
+// WiringPi pin numbers (BCM GPIO numbers in comments)
+// These connect directly to Arduino digital input pins
+#define AcceleratePin   0   // WiringPi 0 = BCM GPIO 17 → Arduino D7
+#define DecelleratePin  1   // WiringPi 1 = BCM GPIO 18 → Arduino D6
+#define RotateRightPin  2   // WiringPi 2 = BCM GPIO 27 → Arduino D5
+#define RotateLeftPin   3   // WiringPi 3 = BCM GPIO 22 → Arduino D4
+#define StopPin         4   // WiringPi 4 = BCM GPIO 23 → Arduino D2
 
-#define LeftWheelPin 0
 #define MOVEMENT_INCREMENT 1
 
 class NavigationCoordinator
@@ -33,6 +34,7 @@ public:
 
     bool IsMovingForward();
     bool IsMovingBackward();
+
 protected:
 private:
     std::stack<DIRECTION> _pendingUpdates;

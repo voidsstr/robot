@@ -1,0 +1,21 @@
+[Unit]
+Description=Robot WiFi Control Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/robot_daemon -p 8080 -s /dev/ttyACM0
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
