@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "Robot Control",
+    "slug": "robot-control",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "robotcontrol",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aisleprompt.robotcontrol",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSBluetoothAlwaysUsageDescription": "Robot Control uses Bluetooth to discover, pair with, and send movement commands to your robot.",
+        "NSBluetoothPeripheralUsageDescription": "Robot Control uses Bluetooth to discover, pair with, and send movement commands to your robot.",
+        "UIBackgroundModes": [
+          "bluetooth-central"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.aisleprompt.robotcontrol",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [
+            "central"
+          ],
+          "bluetoothAlwaysPermission": "Robot Control uses Bluetooth to discover, pair with, and send movement commands to your robot."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a1d3c109-8245-4b40-bc18-d201c206df73"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "owner": "mperry4868"
+  }
+}
