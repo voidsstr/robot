@@ -26,6 +26,7 @@
     "production": {
       "ios": {
         "appleId": "mperry@northernsoftwareconsulting.com",
+        "ascAppId": "6768445191",
         "appleTeamId": "ZYH6M3S4ZF",
         "ascApiKeyPath": "/home/voidsstr/.aisleprompt/AuthKey_WLK228JB3P.p8",
         "ascApiKeyId": "WLK228JB3P",

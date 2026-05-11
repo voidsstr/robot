@@ -29,13 +29,19 @@ See the root `README.md` for the BLE server install / autostart.
 
 ## Build + ship
 
-The deploy mirrors AislePrompt's flow exactly.
+The deploy mirrors AislePrompt's flow exactly — once credentials are
+bootstrapped, every subsequent build is fully non-interactive.
 
 ```bash
 # One-time on a fresh machine
 npm install
 
-# Build + auto-submit to TestFlight
+# ── ONE-TIME interactive step (only on a new bundle id) ──────────────
+# EAS asks Apple for a Distribution Cert + Provisioning Profile for
+# com.aisleprompt.robotcontrol. Needs your Apple ID + app-specific pwd.
+bash scripts/bootstrap-credentials.sh
+
+# ── Build + auto-submit to TestFlight (idempotent, non-interactive) ──
 bash scripts/build-and-submit.sh
 
 # Or split:
@@ -43,31 +49,28 @@ bash scripts/build-and-submit.sh build    # queue an EAS build, exit
 bash scripts/build-and-submit.sh submit   # wait for last build, submit it
 ```
 
-The script reuses the same App Store Connect API key as AislePrompt
-(`/home/voidsstr/.aisleprompt/AuthKey_WLK228JB3P.p8`) because that key
-is scoped to the developer team, not to a specific app — so it works
-for any app you ship under team `ZYH6M3S4ZF`.
+The submit step reuses the same App Store Connect API key as
+AislePrompt (`/home/voidsstr/.aisleprompt/AuthKey_WLK228JB3P.p8`)
+because that key is scoped to the developer team, not to a specific
+app — so it works for any app you ship under team `ZYH6M3S4ZF`. The
+ASC App ID for this app is **6768445191** and is already wired into
+`eas.json`.
 
-### What you (the developer) need to do once on the Apple side
+### Why the one-time bootstrap is needed
 
-EAS handles the auto-provisioning for the App ID and certificates on
-the first build. The one thing Apple still requires manual setup for
-is the **App Store Connect record** for `com.aisleprompt.robotcontrol`:
+Apple exposes two separate APIs:
 
-1. Go to https://appstoreconnect.apple.com/apps
-2. Click **+** → **New App**
-3. Platforms: iOS, Name: **Robot Control**, Primary language: English (U.S.)
-4. Bundle ID: pick `com.aisleprompt.robotcontrol` from the dropdown
-   (it'll appear there after the first EAS build registers the App ID
-   in the developer portal). SKU: `robot-control-001`.
-5. Once created, copy the **App Store Connect App ID** (the long
-   numeric one in the URL, e.g. `6789012345`) and add it to
-   `eas.json` under `submit.production.ios.ascAppId`. Without this
-   the `submit` step has to ask which ASC record to attach to on
-   first run.
+| Operation                              | Auth required by Apple |
+|----------------------------------------|------------------------|
+| Submit a build, manage TestFlight      | ASC API key (.p8) ✓     |
+| Generate a Distribution Certificate    | Apple ID + password    |
+| Register a new App ID / Profile        | Apple ID + password    |
 
-After that, `bash scripts/build-and-submit.sh` runs end-to-end without
-intervention.
+The ASC API key (which AislePrompt's deploy uses) covers submits but
+not Developer Portal credential creation. So a fresh bundle id needs
+one interactive run of `eas credentials` to mint the cert + profile.
+After that, the cached credentials carry every subsequent build,
+which is why `build-and-submit.sh` runs head-less from then on.
 
 ## Source-tree
 

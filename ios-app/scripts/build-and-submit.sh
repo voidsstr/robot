@@ -19,6 +19,20 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
 
+# Silence the noisy Expo-Go production warning — we ship a custom
+# dev client + native plugins so Expo Go isn't part of the pipeline.
+export EAS_BUILD_NO_EXPO_GO_WARNING=true
+
+# Re-use the AislePrompt ASC API key for submit auth (the .p8 is team-
+# scoped, so it works for every app under team ZYH6M3S4ZF).
+if [ -f "$HOME/.aisleprompt/.env" ]; then
+  # shellcheck disable=SC1090
+  . "$HOME/.aisleprompt/.env"
+fi
+export EXPO_ASC_API_KEY_PATH="${EXPO_ASC_API_KEY_PATH:-$HOME/.aisleprompt/AuthKey_WLK228JB3P.p8}"
+export EXPO_ASC_API_KEY_ID="${EXPO_ASC_API_KEY_ID:-WLK228JB3P}"
+export EXPO_ASC_API_KEY_ISSUER_ID="${EXPO_ASC_API_KEY_ISSUER_ID:-40d3c8d7-c8b3-4691-b0a2-e03946796093}"
+
 MODE="${1:-all}"
 LOG="/tmp/robot-control-eas-build.log"
 
