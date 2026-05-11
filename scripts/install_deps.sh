@@ -9,7 +9,7 @@
 #
 set -e
 
-echo "==> Installing APT build dependencies (g++, ncurses, boost, libusb, gpsd, BlueZ, etc.)"
+echo "==> Installing APT build + runtime dependencies (g++, ncurses, boost, libusb, gpsd, BlueZ, camera, etc.)"
 sudo apt-get update
 sudo apt-get install -y \
     build-essential pkg-config curl git \
@@ -17,14 +17,17 @@ sudo apt-get install -y \
     libboost-all-dev \
     libusb-1.0-0-dev \
     libgps-dev \
-    bluez python3 python3-dbus python3-gi python3-pip
+    bluez python3 python3-dbus python3-gi python3-pip \
+    python3-picamera2 python3-pil
+# Camera CLI tools — package name varies across Pi OS releases; either is fine.
+sudo apt-get install -y rpicam-apps 2>/dev/null || sudo apt-get install -y libcamera-apps 2>/dev/null || true
 
-echo "==> Installing the bluezero BLE library (for scripts/ble_server.py)"
-# Debian 12 marks the system Python as externally managed (PEP 668); bluezero
-# isn't packaged, so install it for the system Python the BLE service uses.
-sudo pip3 install --break-system-packages bluezero || \
-    pip3 install --user bluezero || \
-    echo "  (bluezero install failed — BLE control will be unavailable until it is installed)"
+echo "==> Installing Python packages (bluezero for BLE, anthropic for the lawn camera)"
+# Debian 12 marks the system Python as externally managed (PEP 668); these
+# aren't packaged, so install them for the system Python the services use.
+sudo pip3 install --break-system-packages bluezero anthropic || \
+    pip3 install --user bluezero anthropic || \
+    echo "  (pip install failed — BLE control and/or the lawn camera will be unavailable until installed)"
 
 # --- arduino-cli -------------------------------------------------------------
 if ! command -v arduino-cli >/dev/null 2>&1; then
@@ -73,3 +76,8 @@ echo
 echo "All dependencies installed. Build with:"
 echo "  make            # robot, robot_daemon, wifi_client"
 echo "  make upload     # flash the Arduino sketch"
+echo
+echo "Camera (Arducam IMX519): add 'dtoverlay=imx519' to /boot/firmware/config.txt"
+echo "  (see Arducam's install guide) and reboot, then 'rpicam-hello' should preview it."
+echo "Lawn assessment uses the Claude API — export ANTHROPIC_API_KEY before running"
+echo "  scripts/lawn_camera.py."

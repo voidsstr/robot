@@ -1,0 +1,21 @@
+[Unit]
+Description=Robot lawn camera — periodic capture + Claude health assessment
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Put ANTHROPIC_API_KEY=... (and any overrides) in this file:
+EnvironmentFile=/etc/robot/lawn.env
+# Adjust the repo path and the interval/save-dir as needed.
+ExecStart=/usr/bin/python3 /opt/robot/scripts/lawn_camera.py --interval 3600 --save-dir /var/lib/robot/lawn
+Restart=always
+RestartSec=30
+User=root
+Group=root
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

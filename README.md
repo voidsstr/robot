@@ -1,6 +1,6 @@
 # Robot Control System
 
-A tank-style robot you can drive over **WiFi** (a terminal client on the LAN) or **Bluetooth LE** (from an iPhone/Android). Movement commands land on a listener on the Raspberry Pi, which forwards them to an Arduino over the USB cable; the Arduino feeds R/C servo signals to a Sabertooth dual motor driver that powers the tank treads. The WiFi and BLE paths share the same command parser and the same Arduino link — BLE runs as a thin bridge in front of the WiFi command server.
+A tank-style robot you can drive over **WiFi** (a terminal client on the LAN) or **Bluetooth LE** (from an iPhone/Android). Movement commands land on a listener on the Raspberry Pi, which forwards them to an Arduino over the USB cable; the Arduino feeds R/C servo signals to a Sabertooth dual motor driver that powers the tank treads. The WiFi and BLE paths share the same command parser and the same Arduino link — BLE runs as a thin bridge in front of the WiFi command server. There's also an optional **lawn camera** (Arducam IMX519) that snaps photos and asks the Claude API to assess turf health — see *Lawn camera + Claude vision* below.
 
 Total wiring between all boards: **1 USB cable Pi↔Arduino, 2 signal wires + ground Arduino→Sabertooth; motor/battery wiring lives on the Sabertooth's own terminals.**
 
@@ -175,6 +175,7 @@ That script installs everything in one go:
 - **Build tools / libraries:** `build-essential`, `libncurses-dev`, `libboost-all-dev`, `libusb-1.0-0-dev`, `libgps-dev` — the `robot` binary's radio/LIDAR modes need libusb + Boost.Asio; the WiFi/BLE motor path needs only ncurses.
 - **Arduino:** `arduino-cli` plus the `arduino:avr` core and the `Servo` library.
 - **BLE:** `bluez`, `python3-dbus`, `python3-gi`, and the `bluezero` pip package (used by `scripts/ble_server.py`).
+- **Camera / Claude vision:** `python3-picamera2`, `python3-pil`, the `rpicam-apps`/`libcamera-apps` CLI, and the `anthropic` pip package (used by `scripts/lawn_camera.py`). You still need to enable the IMX519 overlay yourself — see **Lawn camera + Claude vision** below.
 - **RPLIDAR SDK:** a static lib is vendored for x86/x64/arm64 under `dependencies/lib/rplidar/`; the script rebuilds it from source (Slamtec SDK v1.9.1) if your architecture is missing.
 
 No WiringPi or other GPIO library is required — the Pi talks to the Arduino over its USB serial port (`/dev/ttyACM0`) using the standard `termios` API.
@@ -298,6 +299,54 @@ Steps:
 
 For a polished on-screen D-pad, write a tiny app (Flutter `flutter_blue_plus`, React-Native `react-native-ble-plx`, Swift `CoreBluetooth`, Kotlin `BluetoothGatt`) that connects to the service above and writes `UP`/`DOWN`/`LEFT`/`RIGHT` on button-down and `STOP` on button-up.
 
+## Lawn camera + Claude vision
+
+`scripts/lawn_camera.py` takes a photo with the Pi camera (Arducam **IMX519**) and, *if the photo contains a lawn*, sends it to the **Claude API** (vision) for a turf-health assessment. Claude first decides whether a lawn is the subject of the shot; if not, it just reports `lawn_present: false` and nothing else is graded.
+
+### Hardware / one-time setup
+
+The IMX519 is a libcamera sensor — it needs its device-tree overlay enabled:
+
+1. Add `dtoverlay=imx519` to `/boot/firmware/config.txt` (on older images, `/boot/config.txt`). Arducam also publishes an installer that adds the overlay and a tuning file — follow [their IMX519 guide](https://docs.arducam.com/Raspberry-Pi-Camera/Native-camera/16MP-IMX519/) for your OS.
+2. Reboot. `rpicam-hello` (or `libcamera-hello`) should now show the camera; `rpicam-still -o test.jpg` should capture a frame.
+3. `scripts/install_deps.sh` installs the Python side: `python3-picamera2`, `python3-pil`, and the `anthropic` SDK. The script uses **picamera2** if available and falls back to the `rpicam-still` / `libcamera-still` CLI.
+
+### Running it
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+
+python3 scripts/lawn_camera.py                       # capture + assess, print the report
+python3 scripts/lawn_camera.py --save-dir ~/lawn     # also save lawn-<ts>.jpg + lawn-<ts>.json
+python3 scripts/lawn_camera.py --image photo.jpg     # assess an existing file (no capture)
+python3 scripts/lawn_camera.py --no-api              # just capture, skip the Claude call
+python3 scripts/lawn_camera.py --interval 3600       # loop forever, one assessment per hour
+```
+
+To run it on a schedule, install the unit (it reads `ANTHROPIC_API_KEY` from an env file):
+
+```bash
+sudo mkdir -p /etc/robot && echo 'ANTHROPIC_API_KEY=sk-ant-...' | sudo tee /etc/robot/lawn.env
+sudo cp scripts/robot-lawncam.service /etc/systemd/system/
+# edit ExecStart's repo path / interval / --save-dir if needed
+sudo systemctl daemon-reload && sudo systemctl enable --now robot-lawncam
+```
+
+### What you get back
+
+The script asks Claude for a structured result (via the SDK's `messages.parse()` with a Pydantic schema, model `claude-opus-4-7`, adaptive thinking, and the turf-care rubric cached as the system prompt):
+
+| Field | Meaning |
+|-------|---------|
+| `lawn_present` / `confidence` | Whether a managed lawn is the subject of the photo, and how sure Claude is |
+| `health_status` | `healthy` / `fair` / `stressed` / `unhealthy` / `no_lawn` / `unknown` |
+| `health_score` | 0 (dead/bare) – 100 (lush, dense, uniform, weed-free) |
+| `issues` | Visible problems: brown patches, weeds, thin/bare spots, drought stress, disease, overgrown, … |
+| `recommendations` | Concrete turf-care actions (water, mow at X, overseed, fertilise, spot-treat weeds, dethatch, …) |
+| `summary` | One- or two-sentence plain-language verdict |
+
+With `--save-dir`, each run also writes the JPEG and a JSON report (assessment + model, request ID, and token usage) — handy for tracking a lawn's condition over time. Costs are billed to your Anthropic key; the photo is downscaled to ~1568 px before sending to keep tokens/latency down.
+
 ## File Layout
 
 ```
@@ -319,13 +368,15 @@ robot/
 │       └── robot/robot.ino         # Arduino firmware (USB-serial → Sabertooth R/C)
 ├── dependencies/                   # vendored RPLIDAR SDK headers + per-arch static libs
 ├── scripts/
-│   ├── install_deps.sh             # apt + arduino-cli + bluezero + RPLIDAR SDK
+│   ├── install_deps.sh             # apt + arduino-cli + bluezero + anthropic + RPLIDAR SDK
 │   ├── build_pi.sh                 # thin wrapper around `make`
 │   ├── deploy_arduino.sh           # compile + flash the sketch (auto port/board)
 │   ├── ble_server.py               # BLE (Nordic UART Service) → command-server bridge
+│   ├── lawn_camera.py              # IMX519 capture → Claude vision lawn-health assessment
 │   ├── install_daemon.sh           # install robot-daemon.service
 │   ├── robot-daemon.service        # systemd unit (WiFi command server)
-│   └── robot-ble.service           # systemd unit (BLE bridge)
+│   ├── robot-ble.service           # systemd unit (BLE bridge)
+│   └── robot-lawncam.service       # systemd unit (periodic lawn camera)
 └── README.md
 ```
 
@@ -346,6 +397,10 @@ robot/
 **Phone won't connect / `RobotBLE` not advertising.** Confirm the controller is up (`bluetoothctl show` → `Powered: yes`; `sudo bluetoothctl power on`). Run `python3 scripts/ble_server.py` directly to see errors — `bluezero` not installed → `pip3 install --break-system-packages bluezero`; "No Bluetooth adapter" → no/blocked adapter (`rfkill unblock bluetooth`). On Pi 3/4/5 the on-board BT works out of the box; on a Pi running a serial-console on the same UART, BT may be on the "mini-UART" and slower but still fine for this.
 
 **BLE connects but the robot doesn't move.** The bridge logs `could not reach command server` if `robot wifi-server` / `robot_daemon` isn't running on port 8080 — start it first. Check the WiFi path works (`nc 127.0.0.1 8080` → `UP`) before blaming BLE.
+
+**Lawn camera can't capture.** `rpicam-hello` should preview the IMX519; if it can't, the overlay isn't active — confirm `dtoverlay=imx519` is in `/boot/firmware/config.txt` and you rebooted, and check `dmesg | grep -i imx519`. `lawn_camera.py` falls back to `rpicam-still` / `libcamera-still` if `python3-picamera2` is missing; install it (or the whole `scripts/install_deps.sh`) if you see "no way to capture an image".
+
+**`lawn_camera.py` errors on the API call.** `ANTHROPIC_API_KEY is not set` → export it (or pass `--no-api` to just capture). `ModuleNotFoundError: anthropic` → `pip3 install --break-system-packages anthropic`. Auth/permission errors come from the key itself — check it in the Anthropic Console. Use `--image somefile.jpg` to test the API path without the camera.
 
 ## Other Modes (not covered here)
 
