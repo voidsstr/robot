@@ -1,22 +1,26 @@
 #include "NavigationCoordinator.h"
+
 #include <curses.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <cstring>
+#include <errno.h>
 
 NavigationCoordinator::NavigationCoordinator()
-    : _navigationCount(0)
+    : _navigationCount(0), _serialFd(-1)
 {
     mvprintw(0, 0, "Telemetry Activated. No commands received.\n");
 }
 
 NavigationCoordinator::~NavigationCoordinator()
 {
-    // Ensure all pins are LOW on destruction
-    #ifdef __arm__
-    digitalWrite(AcceleratePin, LOW);
-    digitalWrite(DecelleratePin, LOW);
-    digitalWrite(RotateRightPin, LOW);
-    digitalWrite(RotateLeftPin, LOW);
-    digitalWrite(StopPin, LOW);
-    #endif
+    if (_serialFd >= 0)
+    {
+        SendCommand(CMD_STOP);
+        close(_serialFd);
+        _serialFd = -1;
+    }
 }
 
 bool NavigationCoordinator::IsMovingBackward()
@@ -43,42 +47,39 @@ void NavigationCoordinator::Accelerate()
 {
     mvprintw(0, 0, "Accelerated                    \n");
     _navigationCount++;
-    NotifyPin(AcceleratePin);
+    SendCommand(CMD_ACCELERATE);
 }
 
 void NavigationCoordinator::Decelerate()
 {
     mvprintw(0, 0, "Decelerated                    \n");
     _navigationCount--;
-    NotifyPin(DecelleratePin);
+    SendCommand(CMD_DECELERATE);
 }
 
 void NavigationCoordinator::RotateRight()
 {
     mvprintw(0, 0, "Rotated right                  \n");
-    NotifyPin(RotateRightPin);
+    SendCommand(CMD_ROTATE_RIGHT);
 }
 
 void NavigationCoordinator::RotateLeft()
 {
     mvprintw(0, 0, "Rotated left                   \n");
-    NotifyPin(RotateLeftPin);
+    SendCommand(CMD_ROTATE_LEFT);
 }
 
 void NavigationCoordinator::StopRobot()
 {
     mvprintw(0, 0, "Stopped                        \n");
     _navigationCount = 0;
-    NotifyPin(StopPin);
+    SendCommand(CMD_STOP);
 }
 
-void NavigationCoordinator::NotifyPin(int pin)
+void NavigationCoordinator::SendCommand(char cmd)
 {
-    #ifdef __arm__
-    digitalWrite(pin, HIGH);
-    delay(10);  // 10ms pulse
-    digitalWrite(pin, LOW);
-    #endif
+    if (_serialFd < 0) return;
+    write(_serialFd, &cmd, 1);
 }
 
 void NavigationCoordinator::ProcessUpdate()
@@ -118,31 +119,55 @@ void NavigationCoordinator::ProcessUpdate()
     }
 }
 
-void NavigationCoordinator::Start()
+bool NavigationCoordinator::Start(const std::string& port)
 {
-    #ifdef __arm__
-    if (wiringPiSetup() == -1)
+    _serialFd = open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (_serialFd < 0)
     {
-        printw("Failed to setup wiringPi!\n");
-        return;
+        printw("Failed to open %s: %s\n", port.c_str(), strerror(errno));
+        return false;
     }
 
-    // Configure all pins as OUTPUT
-    pinMode(AcceleratePin, OUTPUT);
-    pinMode(DecelleratePin, OUTPUT);
-    pinMode(RotateRightPin, OUTPUT);
-    pinMode(RotateLeftPin, OUTPUT);
-    pinMode(StopPin, OUTPUT);
+    struct termios tty;
+    memset(&tty, 0, sizeof(tty));
+    if (tcgetattr(_serialFd, &tty) != 0)
+    {
+        printw("tcgetattr failed: %s\n", strerror(errno));
+        close(_serialFd);
+        _serialFd = -1;
+        return false;
+    }
 
-    // Ensure all pins start LOW
-    digitalWrite(AcceleratePin, LOW);
-    digitalWrite(DecelleratePin, LOW);
-    digitalWrite(RotateRightPin, LOW);
-    digitalWrite(RotateLeftPin, LOW);
-    digitalWrite(StopPin, LOW);
+    cfsetospeed(&tty, B115200);
+    cfsetispeed(&tty, B115200);
 
-    printw("GPIO initialized successfully.\n");
-    #else
-    printw("GPIO not available (not running on ARM).\n");
-    #endif
+    // 8N1, no flow control, raw mode
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+    tty.c_cflag |= (CLOCAL | CREAD);
+    tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CRTSCTS;
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+    tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    tty.c_oflag &= ~OPOST;
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 0;
+
+    if (tcsetattr(_serialFd, TCSANOW, &tty) != 0)
+    {
+        printw("tcsetattr failed: %s\n", strerror(errno));
+        close(_serialFd);
+        _serialFd = -1;
+        return false;
+    }
+
+    // Opening the USB port toggles DTR and resets the Arduino. Give the
+    // bootloader time to hand off to the sketch before we send commands,
+    // then discard any boot noise.
+    usleep(2000000);  // 2 s
+    tcflush(_serialFd, TCIOFLUSH);
+
+    printw("Arduino serial link opened on %s @ %d baud (USB).\n",
+           port.c_str(), ARDUINO_SERIAL_BAUD);
+    return true;
 }

@@ -1,22 +1,29 @@
 #ifndef NAVIGATIONCOORDINATOR_H
 #define NAVIGATIONCOORDINATOR_H
 
-#include <wiringPi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <mutex>
 #include <stack>
+#include <string>
 
 #include "InputProcessor.h"
 #include "NavigationParameter.h"
 
-// WiringPi pin numbers (BCM GPIO numbers in comments)
-// These connect directly to Arduino digital input pins
-#define AcceleratePin   0   // WiringPi 0 = BCM GPIO 17 → Arduino D7
-#define DecelleratePin  1   // WiringPi 1 = BCM GPIO 18 → Arduino D6
-#define RotateRightPin  2   // WiringPi 2 = BCM GPIO 27 → Arduino D5
-#define RotateLeftPin   3   // WiringPi 3 = BCM GPIO 22 → Arduino D4
-#define StopPin         4   // WiringPi 4 = BCM GPIO 23 → Arduino D2
+// Serial link to the Arduino motor controller, over the USB cable.
+// The Arduino enumerates as /dev/ttyACM0 (Uno/Leonardo) or /dev/ttyUSB0
+// (CH340 clones). No GPIO wiring, no level shifting — just the USB cable.
+// Note: opening this port toggles DTR, which resets most Arduino boards,
+// so Start() waits for the bootloader before sending anything.
+#define ARDUINO_SERIAL_PORT "/dev/ttyACM0"
+#define ARDUINO_SERIAL_BAUD 115200
+
+// Single-character commands sent over the serial link.
+#define CMD_ACCELERATE   'U'
+#define CMD_DECELERATE   'D'
+#define CMD_ROTATE_LEFT  'L'
+#define CMD_ROTATE_RIGHT 'R'
+#define CMD_STOP         'S'
 
 #define MOVEMENT_INCREMENT 1
 
@@ -25,13 +32,17 @@ class NavigationCoordinator
 public:
     NavigationCoordinator();
     virtual ~NavigationCoordinator();
-    void Start();
+    // Open the USB serial link to the Arduino. Defaults to ARDUINO_SERIAL_PORT
+    // (/dev/ttyACM0); pass an explicit path for CH340 boards (/dev/ttyUSB0) etc.
+    // Returns true if the port was opened successfully.
+    bool Start(const std::string& port = ARDUINO_SERIAL_PORT);
     void UpdateNavigationParameters(DIRECTION navigationParameter);
     void ProcessUpdate();
     void StopRobot();
 
     void PrintTelemetry();
 
+    bool IsConnected() const { return _serialFd >= 0; }
     bool IsMovingForward();
     bool IsMovingBackward();
 
@@ -42,9 +53,10 @@ private:
     void Decelerate();
     void RotateLeft();
     void RotateRight();
-    void NotifyPin(int pin);
+    void SendCommand(char cmd);
 
     int _navigationCount;
+    int _serialFd;
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

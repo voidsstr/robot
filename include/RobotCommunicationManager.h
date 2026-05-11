@@ -5,6 +5,11 @@
 
 #include <iostream>
 #include <boost/array.hpp>
+// ncurses defines a `timeout` macro that collides with
+// boost::asio::basic_socket_streambuf::timeout(); drop it before Asio.
+#ifdef timeout
+#undef timeout
+#endif
 #include <boost/asio.hpp>
 #include <string>
 #include <curses.h>

@@ -29,3 +29,8 @@
 *.exe
 *.out
 *.app
+
+# Build outputs
+/bin/robot
+/bin/robot_daemon
+/bin/wifi_client

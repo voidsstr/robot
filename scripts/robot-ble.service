@@ -1,0 +1,19 @@
+[Unit]
+Description=Robot BLE Control Bridge (Nordic UART Service -> WiFi command server)
+After=bluetooth.target robot-daemon.service
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+# Adjust the path if you cloned the repo somewhere other than /opt/robot.
+ExecStart=/usr/bin/python3 /opt/robot/scripts/ble_server.py --port 8080
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

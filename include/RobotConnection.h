@@ -6,6 +6,11 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
+// ncurses defines a `timeout` macro that collides with
+// boost::asio::basic_socket_streambuf::timeout(); drop it before Asio.
+#ifdef timeout
+#undef timeout
+#endif
 #include <boost/asio.hpp>
 
 using boost::asio::ip::tcp;

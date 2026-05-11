@@ -1,6 +1,12 @@
 #ifndef CLIENTMANAGER_H
 #define CLIENTMANAGER_H
 
+// ncurses (pulled in via other headers) defines a `timeout` macro that
+// collides with boost::asio::basic_socket_streambuf::timeout(). Drop it
+// before including Asio.
+#ifdef timeout
+#undef timeout
+#endif
 #include <boost/asio.hpp>
 
 using boost::asio::ip::udp;

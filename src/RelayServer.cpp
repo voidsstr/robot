@@ -47,7 +47,9 @@ void RelayServer::RelayMessageToRobot()
 
 void RelayServer::RecieveRobotConnections()
 {
-    RobotConnection* new_connection = new RobotConnection(_acceptor->get_io_service());
+    // boost::asio::basic_socket_acceptor::get_io_service() was removed in
+    // Boost 1.70; we already keep the io_service around as _service.
+    RobotConnection* new_connection = new RobotConnection(*_service);
 
     _connections.push_back(new_connection);
 

@@ -3,8 +3,6 @@
 #include <iostream>
 #include <string>
 #include <curses.h>
-#include <wiringPi.h>
-#include <softPwm.h>
 #include <unistd.h>
 
 #include "NavigationCoordinator.h"

@@ -9,6 +9,8 @@
 #include <atomic>
 #include <mutex>
 #include <queue>
+#include <algorithm>
+#include <string>
 
 class RobotWifiClient
 {

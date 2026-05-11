@@ -127,7 +127,8 @@ bool ArduinoSerialManager::sendCommand(char command)
 
 bool ArduinoSerialManager::accelerate()
 {
-    return sendCommand('A');
+    // Matches the Arduino sketch / NavigationCoordinator protocol ('U' = forward).
+    return sendCommand('U');
 }
 
 bool ArduinoSerialManager::decelerate()
