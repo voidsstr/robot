@@ -73,7 +73,7 @@ Client shows an ASCII robot, current speed, last command, and the server log in 
 
 ### 4. Bluetooth (BLE) bridge — `scripts/ble_server.py`
 
-A small Python service that runs *alongside* the WiFi listener on the Pi. It advertises a BLE GATT peripheral (the Nordic UART Service) so a phone can pair with it, and forwards every command it receives to `127.0.0.1:8080` — i.e. straight into `WifiCommandServer`. Nothing about the motor path changes; BLE is just another front door to the same command server. See **Bluetooth (BLE) control** below for the UUIDs and phone setup.
+A small Python service that runs on the Pi. It advertises a BLE GATT peripheral (the Nordic UART Service) so a phone can pair with it, parses each command it receives, and writes the matching single-character control byte (`U`/`D`/`L`/`R`/`S`) **directly** to the Arduino over `/dev/ttyACM0`. No TCP loopback, no WiFi server required — BLE control is fully standalone. See **Bluetooth (BLE) control** below for the UUIDs and phone setup.
 
 ## Command Path — End to End
 
@@ -280,9 +280,9 @@ QUIT
 | RX          | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | Write / WriteNR | phone → robot   |
 | TX          | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | Notify          | robot → phone   |
 
-Write **one command per BLE write** to the RX characteristic (a trailing newline is optional). The accepted strings are exactly the TCP commands and aliases: `UP`/`FORWARD`/`W`, `DOWN`/`BACK`/`S`, `LEFT`/`A`, `RIGHT`/`D`, `STOP`/`SPACE`/`X`, `STATUS`. Subscribe to the TX characteristic to receive the server's `OK: …` / `ERR: …` replies as notifications.
+Write **one command per BLE write** to the RX characteristic (a trailing newline is optional). The accepted strings are the same set the WiFi path uses: `UP`/`FORWARD`/`W`, `DOWN`/`BACK`/`S`, `LEFT`/`A`, `RIGHT`/`D`, `STOP`/`SPACE`/`X`, `STATUS`. Subscribe to the TX characteristic to receive the bridge's `OK: …` / `ERR: …` replies as notifications.
 
-The bridge just relays bytes to `127.0.0.1:8080`, so the WiFi listener (`robot wifi-server` or `robot_daemon`) must be running. Note `WifiCommandServer` handles **one TCP client at a time**, and the running BLE bridge holds that slot — so connect *either* the BLE bridge *or* a WiFi `wifi_client`, not both at once (stop one before using the other).
+The bridge opens `/dev/ttyACM0` itself and writes one byte per command straight to the Arduino — no WiFi server, no TCP loopback. Since both the WiFi path and the BLE path want exclusive access to the same serial port, run **either** `robot wifi-server` / `robot_daemon` **or** `ble_server.py` at a time, not both.
 
 ### Pairing from a phone
 
@@ -394,9 +394,9 @@ robot/
 
 **Motors twitch or cut out.** Usually a power/ground issue on the Sabertooth side — make sure the Sabertooth `0V` is tied to Arduino `GND`, the motor battery can supply stall current, and the signal wires aren't routed alongside the motor leads.
 
-**Phone won't connect / `RobotBLE` not advertising.** Confirm the controller is up (`bluetoothctl show` → `Powered: yes`; `sudo bluetoothctl power on`). Run `python3 scripts/ble_server.py` directly to see errors — `bluezero` not installed → `pip3 install --break-system-packages bluezero`; "No Bluetooth adapter" → no/blocked adapter (`rfkill unblock bluetooth`). On Pi 3/4/5 the on-board BT works out of the box; on a Pi running a serial-console on the same UART, BT may be on the "mini-UART" and slower but still fine for this.
+**Phone won't connect / `RobotBLE` not advertising.** Confirm the controller is up (`bluetoothctl show` → `Powered: yes`; `sudo bluetoothctl power on`). Run `python3 scripts/ble_server.py` directly to see errors — missing deps → `pip3 install --break-system-packages bluezero pyserial`; "No Bluetooth adapter" → no/blocked adapter (`rfkill unblock bluetooth`). On Pi 3/4/5 the on-board BT works out of the box; on a Pi running a serial-console on the same UART, BT may be on the "mini-UART" and slower but still fine for this.
 
-**BLE connects but the robot doesn't move.** The bridge logs `could not reach command server` if `robot wifi-server` / `robot_daemon` isn't running on port 8080 — start it first. Check the WiFi path works (`nc 127.0.0.1 8080` → `UP`) before blaming BLE.
+**BLE connects but the robot doesn't move.** The bridge logs `could not write to Arduino on /dev/ttyACM0` if the USB cable isn't plugged in or another process owns the port (typical culprit: `robot wifi-server` / `robot_daemon` is still running and holding `/dev/ttyACM0`). Stop the WiFi listener before starting the BLE bridge, or vice versa. Check `ls -l /dev/ttyACM0` and `lsof /dev/ttyACM0`.
 
 **Lawn camera can't capture.** `rpicam-hello` should preview the IMX519; if it can't, the overlay isn't active — confirm `dtoverlay=imx519` is in `/boot/firmware/config.txt` and you rebooted, and check `dmesg | grep -i imx519`. `lawn_camera.py` falls back to `rpicam-still` / `libcamera-still` if `python3-picamera2` is missing; install it (or the whole `scripts/install_deps.sh`) if you see "no way to capture an image".
 

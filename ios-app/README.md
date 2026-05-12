@@ -18,9 +18,10 @@ using the same EAS / App Store Connect API key path.
 
 ## Robot-side prerequisites
 
-The Pi runs `scripts/ble_server.py` (a BLE → TCP bridge) which is what
-this app talks to. The BLE service it advertises is the Nordic UART
-Service, characteristics:
+The Pi runs `scripts/ble_server.py` (a BLE → USB-serial bridge that talks
+directly to the Arduino on `/dev/ttyACM0`) which is what this app talks
+to. The BLE service it advertises is the Nordic UART Service,
+characteristics:
 
 - `6E400002-…` — write, phone → robot (commands)
 - `6E400003-…` — notify, robot → phone (replies)

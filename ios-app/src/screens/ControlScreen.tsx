@@ -1,7 +1,7 @@
 // Tank-control pad. Five large buttons map 1:1 to the BLE NUS commands
-// the Pi-side ble_server.py forwards to the WiFi command server:
+// the Pi-side ble_server.py writes directly to the Arduino over USB serial:
 //   UP / DOWN / LEFT / RIGHT / STOP
-// (these mirror src/wifi_client.cpp's keyboard mapping).
+// (these mirror src/wifi_client.cpp's keyboard mapping.)
 //
 // UX:
 //   - Press-and-hold = continuous step. We send the command on press AND
