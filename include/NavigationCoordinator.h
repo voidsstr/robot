@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <mutex>
-#include <stack>
+#include <queue>
 #include <string>
 
 #include "InputProcessor.h"
@@ -48,7 +48,8 @@ public:
 
 protected:
 private:
-    std::stack<DIRECTION> _pendingUpdates;
+    std::queue<DIRECTION> _pendingUpdates;
+    std::mutex _pendingMutex;
     void Accelerate();
     void Decelerate();
     void RotateLeft();

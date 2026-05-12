@@ -91,9 +91,11 @@ void clientLoop()
         {
             std::ostringstream oss;
             oss << input;
-            char* command = (char*)oss.str().c_str();
+            std::string commandStr = oss.str();
 
-            CCRTPPacket* packet = new CCRTPPacket(command, sizeof(command), 1);
+            CCRTPPacket* packet = new CCRTPPacket(
+                const_cast<char*>(commandStr.c_str()),
+                commandStr.size(), 1);
 
             radio.sendPacket(packet, true);
         }

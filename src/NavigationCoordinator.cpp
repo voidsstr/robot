@@ -5,12 +5,45 @@
 #include <termios.h>
 #include <unistd.h>
 #include <cstring>
+#include <cstdio>
+#include <cstdarg>
 #include <errno.h>
+
+namespace
+{
+    // Curses calls (mvprintw/printw) segfault if invoked before initscr() —
+    // i.e. when this class is used from a headless daemon. These helpers
+    // print through curses when a screen is active, and fall back to stdout
+    // otherwise so the daemon stays usable.
+    bool cursesActive()
+    {
+        return stdscr != nullptr && !isendwin();
+    }
+
+    void statusLine(int y, const char* fmt, ...)
+    {
+        va_list ap;
+        va_start(ap, fmt);
+        if (cursesActive())
+        {
+            char buf[256];
+            vsnprintf(buf, sizeof(buf), fmt, ap);
+            mvprintw(y, 0, "%s", buf);
+        }
+        else
+        {
+            vfprintf(stdout, fmt, ap);
+            fputc('\n', stdout);
+            fflush(stdout);
+        }
+        va_end(ap);
+    }
+}
 
 NavigationCoordinator::NavigationCoordinator()
     : _navigationCount(0), _serialFd(-1)
 {
-    mvprintw(0, 0, "Telemetry Activated. No commands received.\n");
+    statusLine(0, "Telemetry Activated. No commands received.");
 }
 
 NavigationCoordinator::~NavigationCoordinator()
@@ -35,43 +68,44 @@ bool NavigationCoordinator::IsMovingForward()
 
 void NavigationCoordinator::UpdateNavigationParameters(DIRECTION navigationParameter)
 {
+    std::lock_guard<std::mutex> lock(_pendingMutex);
     _pendingUpdates.push(navigationParameter);
 }
 
 void NavigationCoordinator::PrintTelemetry()
 {
-    mvprintw(2, 0, "Speed: %i     ", _navigationCount);
+    statusLine(2, "Speed: %i     ", _navigationCount);
 }
 
 void NavigationCoordinator::Accelerate()
 {
-    mvprintw(0, 0, "Accelerated                    \n");
+    statusLine(0, "Accelerated                    ");
     _navigationCount++;
     SendCommand(CMD_ACCELERATE);
 }
 
 void NavigationCoordinator::Decelerate()
 {
-    mvprintw(0, 0, "Decelerated                    \n");
+    statusLine(0, "Decelerated                    ");
     _navigationCount--;
     SendCommand(CMD_DECELERATE);
 }
 
 void NavigationCoordinator::RotateRight()
 {
-    mvprintw(0, 0, "Rotated right                  \n");
+    statusLine(0, "Rotated right                  ");
     SendCommand(CMD_ROTATE_RIGHT);
 }
 
 void NavigationCoordinator::RotateLeft()
 {
-    mvprintw(0, 0, "Rotated left                   \n");
+    statusLine(0, "Rotated left                   ");
     SendCommand(CMD_ROTATE_LEFT);
 }
 
 void NavigationCoordinator::StopRobot()
 {
-    mvprintw(0, 0, "Stopped                        \n");
+    statusLine(0, "Stopped                        ");
     _navigationCount = 0;
     SendCommand(CMD_STOP);
 }
@@ -84,13 +118,20 @@ void NavigationCoordinator::SendCommand(char cmd)
 
 void NavigationCoordinator::ProcessUpdate()
 {
-    if (_pendingUpdates.size() > 0)
+    while (true)
     {
-        while (_pendingUpdates.size() > 0)
+        DIRECTION currentUpdate;
         {
-            DIRECTION currentUpdate = _pendingUpdates.top();
+            std::lock_guard<std::mutex> lock(_pendingMutex);
+            if (_pendingUpdates.empty())
+            {
+                return;
+            }
+            currentUpdate = _pendingUpdates.front();
             _pendingUpdates.pop();
+        }
 
+        {
             if (currentUpdate == DIRECTION::UP)
             {
                 Accelerate();
@@ -113,7 +154,7 @@ void NavigationCoordinator::ProcessUpdate()
             }
             else
             {
-                mvprintw(0, 0, "No movement                    \n");
+                statusLine(0, "No movement                    ");
             }
         }
     }
@@ -124,7 +165,7 @@ bool NavigationCoordinator::Start(const std::string& port)
     _serialFd = open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (_serialFd < 0)
     {
-        printw("Failed to open %s: %s\n", port.c_str(), strerror(errno));
+        statusLine(1, "Failed to open %s: %s", port.c_str(), strerror(errno));
         return false;
     }
 
@@ -132,7 +173,7 @@ bool NavigationCoordinator::Start(const std::string& port)
     memset(&tty, 0, sizeof(tty));
     if (tcgetattr(_serialFd, &tty) != 0)
     {
-        printw("tcgetattr failed: %s\n", strerror(errno));
+        statusLine(1, "tcgetattr failed: %s", strerror(errno));
         close(_serialFd);
         _serialFd = -1;
         return false;
@@ -155,7 +196,7 @@ bool NavigationCoordinator::Start(const std::string& port)
 
     if (tcsetattr(_serialFd, TCSANOW, &tty) != 0)
     {
-        printw("tcsetattr failed: %s\n", strerror(errno));
+        statusLine(1, "tcsetattr failed: %s", strerror(errno));
         close(_serialFd);
         _serialFd = -1;
         return false;
@@ -167,7 +208,7 @@ bool NavigationCoordinator::Start(const std::string& port)
     usleep(2000000);  // 2 s
     tcflush(_serialFd, TCIOFLUSH);
 
-    printw("Arduino serial link opened on %s @ %d baud (USB).\n",
-           port.c_str(), ARDUINO_SERIAL_BAUD);
+    statusLine(1, "Arduino serial link opened on %s @ %d baud (USB).",
+               port.c_str(), ARDUINO_SERIAL_BAUD);
     return true;
 }

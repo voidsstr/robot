@@ -25,8 +25,8 @@ sudo apt-get install -y rpicam-apps 2>/dev/null || sudo apt-get install -y libca
 echo "==> Installing Python packages (bluezero for BLE, anthropic for the lawn camera)"
 # Debian 12 marks the system Python as externally managed (PEP 668); these
 # aren't packaged, so install them for the system Python the services use.
-sudo pip3 install --break-system-packages bluezero anthropic || \
-    pip3 install --user bluezero anthropic || \
+sudo pip3 install --break-system-packages bluezero pyserial anthropic || \
+    pip3 install --user bluezero pyserial anthropic || \
     echo "  (pip install failed — BLE control and/or the lawn camera will be unavailable until installed)"
 
 # --- arduino-cli -------------------------------------------------------------
