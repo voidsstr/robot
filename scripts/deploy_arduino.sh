@@ -27,8 +27,12 @@ if [ -z "$PORT" ]; then
     detected="$(arduino-cli board list 2>/dev/null | awk 'NR>1 && $1 ~ /^\/dev\// {print $1; exit}')"
     if [ -n "$detected" ]; then
         PORT="$detected"
-        fqbn_detected="$(arduino-cli board list 2>/dev/null | awk -v p="$PORT" '$1==p {print $NF}')"
-        case "$fqbn_detected" in arduino:*) FQBN="$fqbn_detected" ;; esac
+        # The FQBN column (e.g. "arduino:avr:uno") may have spaces in the Board
+        # Name to its left, so pick the field that looks like a 3-part FQBN —
+        # not just $NF, which is the Core column ("arduino:avr").
+        fqbn_detected="$(arduino-cli board list 2>/dev/null | awk -v p="$PORT" \
+            '$1==p {for (i=1;i<=NF;i++) if ($i ~ /^arduino:[^:]+:[^:]+$/) {print $i; exit}}')"
+        case "$fqbn_detected" in arduino:*:*) FQBN="$fqbn_detected" ;; esac
     fi
 fi
 if [ -z "$PORT" ]; then

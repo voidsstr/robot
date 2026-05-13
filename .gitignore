@@ -34,3 +34,7 @@
 /bin/robot
 /bin/robot_daemon
 /bin/wifi_client
+
+# Python bytecode
+__pycache__/
+*.pyc
