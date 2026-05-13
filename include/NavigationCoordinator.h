@@ -46,6 +46,12 @@ public:
     bool IsMovingForward();
     bool IsMovingBackward();
 
+    // Pi-side mirror of the Arduino's servo state (robot.ino has no echo,
+    // so we track what we sent and predict what the board did with it).
+    // Useful for status displays and "did my command land?" sanity checks.
+    int LeftLevel()  const { return _leftLevel; }
+    int RightLevel() const { return _rightLevel; }
+
 protected:
 private:
     std::queue<DIRECTION> _pendingUpdates;
@@ -58,6 +64,14 @@ private:
 
     int _navigationCount;
     int _serialFd;
+
+    // Mirrors of leftMotorLevel / rightMotorLevel in robot.ino.  90 = neutral
+    // (≈1500 µs), 0 = full forward (≈1000 µs), 180 = full reverse (≈2000 µs).
+    // Each Accelerate/Decelerate/Rotate* call updates these in lock-step with
+    // the Arduino's constrain(±3, 0, 180) so the Pi can show motor state
+    // without needing the Arduino to echo anything back.
+    int _leftLevel  = 90;
+    int _rightLevel = 90;
 };
 
 #endif // NAVIGATIONCOORDINATOR_H

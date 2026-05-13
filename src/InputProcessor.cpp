@@ -10,33 +10,35 @@ InputProcessor::~InputProcessor()
     //dtor
 }
 
+// Map a single ncurses keycode to a DIRECTION command.  Accepts both the
+// arrow keys (ncurses KEY_UP / KEY_DOWN / KEY_LEFT / KEY_RIGHT) and WASD,
+// so the local Pi console feels the same as the wifi_client terminal.
+// Space and 'X' are both wired to STOP for panic-stop with either thumb.
 DIRECTION InputProcessor::ProcessInput(int key)
 {
-    if(key == 259)
+    switch (key)
     {
-        HUDManager::logMessage(InputFeedback, "Navigated forward");
-        return DIRECTION::UP;
-    }
-    else if(key == 258)
-    {
-        HUDManager::logMessage(InputFeedback, "Navigated backward");
-        return DIRECTION::DOWN;
-    }
-    else if(key == 260)
-    {
-        HUDManager::logMessage(InputFeedback, "Navigated left");
-        return DIRECTION::LEFT;
-    }
-    else if(key == 261)
-    {
-        HUDManager::logMessage(InputFeedback, "Navigated right");
-        return DIRECTION::RIGHT;
-    }
-    else if(key == 32)
-    {
-        HUDManager::logMessage(InputFeedback, "Stopped robot");
-        return DIRECTION::STOP;
-    }
+        case KEY_UP:    case 'w': case 'W':
+            HUDManager::logMessage(InputFeedback, "Navigated forward");
+            return DIRECTION::UP;
 
-    return DIRECTION::UNKNOWN;
+        case KEY_DOWN:  case 's': case 'S':
+            HUDManager::logMessage(InputFeedback, "Navigated backward");
+            return DIRECTION::DOWN;
+
+        case KEY_LEFT:  case 'a': case 'A':
+            HUDManager::logMessage(InputFeedback, "Navigated left");
+            return DIRECTION::LEFT;
+
+        case KEY_RIGHT: case 'd': case 'D':
+            HUDManager::logMessage(InputFeedback, "Navigated right");
+            return DIRECTION::RIGHT;
+
+        case ' ':       case 'x': case 'X':
+            HUDManager::logMessage(InputFeedback, "Stopped robot");
+            return DIRECTION::STOP;
+
+        default:
+            return DIRECTION::UNKNOWN;
+    }
 }

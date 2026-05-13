@@ -127,31 +127,76 @@ void wifiServerLoop(int port)
     }
 
     mvprintw(4, 0, "WiFi server listening on port %d", port);
-    mvprintw(6, 0, "Press 'q' to quit");
+    mvprintw(6, 0, "Keys:  ARROWS / WASD = drive    SPACE / X = STOP    Q = quit");
     refresh();
 
     InputProcessor inputProcessor;
 
-    // Main loop - handle local keyboard input too
-    while(true)
+    // Main loop — handle local keyboard input too.
+    //
+    // IMPORTANT: getch() returns one buffered key per call.  Terminal auto-
+    // repeat (~30 Hz) plus kernel/curses input buffering can queue more
+    // keystrokes than we want to act on, and a naive "one getch per loop
+    // tick" drains them long after the user lifted the key — every queued
+    // event becomes another ±3 servo step the Arduino dutifully applies,
+    // which is how you end up at full throttle a half-second after letting
+    // go.  Fix: each loop tick, drain getch() to the LATEST event and act
+    // only on that.  The motor step rate is then 1 cmd per loop tick, not
+    // 1 per keypress, decoupled from how fast the terminal repeats.
+    //
+    // The tick is 50 ms (= one Servo PWM cycle at 50 Hz).  With ±3 per
+    // command in robot.ino, that's a smooth ~1.5 s sweep from neutral to
+    // full throttle while a direction key is held — fast enough to feel
+    // responsive, slow enough to not overshoot.
+    bool quit = false;
+    while(!quit)
     {
-        int ch = getch();
-
-        if (ch == 'q' || ch == 'Q')
+        int ch;
+        int latest = ERR;
+        while((ch = getch()) != ERR)
         {
-            break;
+            if (ch == 'q' || ch == 'Q') { quit = true; break; }
+            latest = ch;        // discard older events, keep only the newest
         }
 
-        DIRECTION input = inputProcessor.ProcessInput(ch);
+        if(quit) break;
 
-        if(input != DIRECTION::UNKNOWN)
+        if(latest != ERR)
         {
-            navigationCoordinator.UpdateNavigationParameters(input);
-            navigationCoordinator.ProcessUpdate();
+            DIRECTION input = inputProcessor.ProcessInput(latest);
+            if(input != DIRECTION::UNKNOWN)
+            {
+                navigationCoordinator.UpdateNavigationParameters(input);
+                navigationCoordinator.ProcessUpdate();
+            }
         }
 
-        usleep(10000);  // 10ms
+        // Live motor-level HUD — Pi-side mirror of the Arduino's servo
+        // state, so the operator can see commands landing in real time.
+        // 90 = neutral; <90 = forward; >90 = reverse.  Pulse width is the
+        // approximate value the Sabertooth's R/C input sees.
+        auto fmt = [](int level, char* buf, size_t n) {
+            int us = 1000 + (int)(level * (1000.0 / 180.0) + 0.5);
+            const char* dir = (level == 90) ? "stop" : (level < 90 ? "fwd " : "rev ");
+            int pct = (level == 90) ? 0 : ((level < 90 ? 90 - level : level - 90) * 100 / 90);
+            snprintf(buf, n, "%3d (%4dus, %s%3d%%)", level, us, dir, pct);
+        };
+        char lbuf[48], rbuf[48];
+        fmt(navigationCoordinator.LeftLevel(),  lbuf, sizeof(lbuf));
+        fmt(navigationCoordinator.RightLevel(), rbuf, sizeof(rbuf));
+        mvprintw(8, 0, "Left  motor:  %s", lbuf);
+        mvprintw(9, 0, "Right motor:  %s", rbuf);
+        clrtoeol();
+        refresh();
+
+        usleep(50000);  // 50 ms = one servo PWM cycle; one motor step per tick
     }
+
+    // Park the robot before tearing down curses — destructor sends 'S' too
+    // when the serial fd closes, but doing it explicitly here means the
+    // motors are at neutral the instant we leave the input loop.
+    navigationCoordinator.UpdateNavigationParameters(DIRECTION::STOP);
+    navigationCoordinator.ProcessUpdate();
 
     server.stop();
     endwin();

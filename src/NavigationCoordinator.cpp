@@ -77,10 +77,21 @@ void NavigationCoordinator::PrintTelemetry()
     statusLine(2, "Speed: %i     ", _navigationCount);
 }
 
+// Mirror robot.ino's constrain(level ± 3, 0, 180) so the Pi-side prediction
+// matches the Arduino exactly.  Keep these in lock-step with the firmware.
+namespace
+{
+    constexpr int kStep    = 3;
+    constexpr int kNeutral = 90;
+    inline int clampLevel(int v) { return v < 0 ? 0 : (v > 180 ? 180 : v); }
+}
+
 void NavigationCoordinator::Accelerate()
 {
     statusLine(0, "Accelerated                    ");
     _navigationCount++;
+    _leftLevel  = clampLevel(_leftLevel  - kStep);
+    _rightLevel = clampLevel(_rightLevel - kStep);
     SendCommand(CMD_ACCELERATE);
 }
 
@@ -88,18 +99,24 @@ void NavigationCoordinator::Decelerate()
 {
     statusLine(0, "Decelerated                    ");
     _navigationCount--;
+    _leftLevel  = clampLevel(_leftLevel  + kStep);
+    _rightLevel = clampLevel(_rightLevel + kStep);
     SendCommand(CMD_DECELERATE);
 }
 
 void NavigationCoordinator::RotateRight()
 {
     statusLine(0, "Rotated right                  ");
+    _leftLevel  = clampLevel(_leftLevel  - kStep);
+    _rightLevel = clampLevel(_rightLevel + kStep);
     SendCommand(CMD_ROTATE_RIGHT);
 }
 
 void NavigationCoordinator::RotateLeft()
 {
     statusLine(0, "Rotated left                   ");
+    _leftLevel  = clampLevel(_leftLevel  + kStep);
+    _rightLevel = clampLevel(_rightLevel - kStep);
     SendCommand(CMD_ROTATE_LEFT);
 }
 
@@ -107,6 +124,8 @@ void NavigationCoordinator::StopRobot()
 {
     statusLine(0, "Stopped                        ");
     _navigationCount = 0;
+    _leftLevel  = kNeutral;
+    _rightLevel = kNeutral;
     SendCommand(CMD_STOP);
 }
 
