@@ -3,17 +3,29 @@
 //   UP / DOWN / LEFT / RIGHT / STOP
 // (these mirror src/wifi_client.cpp's keyboard mapping.)
 //
-// UX:
+// UX (matches the Pi console's `bin/robot wifi-server` keyboard feel):
 //   - Press-and-hold = continuous step. We send the command on press AND
-//     fire a STOP on release so the robot doesn't keep coasting if the
-//     thumb slips. The Arduino's accelerate/decelerate logic in
-//     src/Arduino/robot/robot.ino moves servo levels by ±3 per command,
-//     so this gives a feel close to "longer press = faster".
-//   - Big red STOP in the center always parks both treads to neutral.
+//     auto-repeat at REPEAT_INTERVAL_MS while the finger stays down. Each
+//     command moves the Arduino's servo levels by ±3 (constrain'd to
+//     0..180), so a steady hold ramps roughly neutral → full in ~1.5 s.
+//   - Releasing a direction button does NOT auto-STOP. The robot HOLDS
+//     its current speed, exactly like releasing an arrow key on the
+//     wifi-server console. To halt, press the big red STOP in the centre.
+//     This trade gives much smoother starts and stops, instead of the
+//     robot snapping back to neutral every time a thumb lifts.
+//   - STOP button + a fresh STOP on screen unmount + the Sabertooth's
+//     own R/C failsafe (signal-loss → motors off) are the safety nets.
 //   - The last reply line from the robot (e.g. "OK: UP") is shown at the
 //     bottom so the user can see commands are landing.
 //   - Forget / Re-pair button up top wipes the saved robot id and pops
 //     back to the scan screen.
+//
+// Why 50 ms?  The wifi-server's keyboard loop drains buffered keys every
+// 50 ms (= one Sabertooth R/C pulse cycle at 50 Hz) and sends at most one
+// motor step per loop tick.  Matching that cadence on the app side keeps
+// the feel identical between the two control paths, and 20 commands/sec
+// is well under BLE's connection-interval bandwidth budget.
+const REPEAT_INTERVAL_MS = 50;
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -85,12 +97,15 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
     setActiveKey(cmd);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     send(cmd);
-    // Auto-repeat at 5 Hz while held — mirrors the wifi_client cadence
-    // and keeps the tread acceleration smooth instead of one-tap-per-step.
+    // Auto-repeat at 20 Hz (50 ms) while held — matches the wifi-server's
+    // keyboard loop tick so the on-screen pad and the Pi console feel
+    // identical.  A 1.5 s hold takes the Arduino's level from neutral
+    // (90) to full throttle (0 or 180); shorter taps give proportionally
+    // smaller steps.
     if (repeatTimerRef.current) clearInterval(repeatTimerRef.current);
     repeatTimerRef.current = setInterval(() => {
       send(cmd);
-    }, 200);
+    }, REPEAT_INTERVAL_MS);
   };
 
   const onPressOut = () => {
@@ -99,8 +114,12 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
       repeatTimerRef.current = null;
     }
     setActiveKey(null);
-    // Safety stop on release so the robot doesn't drift away.
-    send('STOP');
+    // NB: We deliberately do NOT send 'STOP' here.  Releasing a direction
+    // button keeps the robot moving at its current speed, exactly like
+    // releasing an arrow key on the wifi-server console — that's what
+    // gives the pad a smooth/analog feel instead of snapping to neutral.
+    // The big red STOP button below is the explicit way to halt; the
+    // useEffect cleanup also fires a STOP on unmount as a safety net.
   };
 
   const handleForget = () => {

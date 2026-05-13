@@ -43,6 +43,11 @@ NUS_SERVICE = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
 NUS_RX_CHAR = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'   # Write   (phone -> robot)
 NUS_TX_CHAR = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone)
 
+# Path our auto-accept BlueZ agent registers under.  Any unused path works;
+# it just needs to be unique and stable for the lifetime of the script.
+AGENT_PATH = '/com/voidsstr/robot/agent'
+BLUEZ_AGENT_IFACE = 'org.bluez.Agent1'
+
 DEFAULT_NAME = 'RobotBLE'
 DEFAULT_SERIAL_PORT = '/dev/ttyACM0'
 DEFAULT_SERIAL_BAUD = 115200
@@ -58,6 +63,73 @@ COMMAND_MAP = {
     'RIGHT': 'R', 'D': 'R',
     'STOP': 'S', 'SPACE': 'S', 'X': 'S',
 }
+
+
+def register_auto_accept_agent():
+    """Register a 'Just Works' BlueZ pairing agent on the system bus.
+
+    By default BlueZ uses the user-interactive bluetoothctl agent — when a
+    phone tries to pair, the Pi prompts the user to confirm.  We don't have
+    a user at the Pi (it's headless) and we want pairing to be seamless
+    from the phone's perspective.
+
+    Registering an agent with capability 'NoInputNoOutput' tells BlueZ to
+    use the 'Just Works' SSP pairing flow (no PIN, no confirmation) for
+    any device that connects to us.  All the Agent1 methods below
+    auto-accept whatever BlueZ asks.
+
+    Idempotent — if a previous run left an agent registered at this path,
+    we unregister it first.  Returns the agent object (caller must keep a
+    reference, otherwise dbus-python garbage-collects it).
+    """
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+
+    # Plug D-Bus into the GLib mainloop bluezero will start in publish().
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    bus = dbus.SystemBus()
+
+    class _AutoAcceptAgent(dbus.service.Object):
+        # Every callback below returns "accept" / "no input needed", which is
+        # exactly what NoInputNoOutput SSP requires.  See BlueZ doc/agent-api.txt
+        # for the contract.
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='', out_signature='')
+        def Release(self): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='os', out_signature='')
+        def AuthorizeService(self, device, uuid): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='o', out_signature='s')
+        def RequestPinCode(self, device): return '0000'
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='o', out_signature='u')
+        def RequestPasskey(self, device): return dbus.UInt32(0)
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='ouq', out_signature='')
+        def DisplayPasskey(self, device, passkey, entered): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='os', out_signature='')
+        def DisplayPinCode(self, device, pincode): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='ou', out_signature='')
+        def RequestConfirmation(self, device, passkey): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='o', out_signature='')
+        def RequestAuthorization(self, device): pass
+        @dbus.service.method(BLUEZ_AGENT_IFACE, in_signature='', out_signature='')
+        def Cancel(self): pass
+
+    agent = _AutoAcceptAgent(bus, AGENT_PATH)
+
+    manager = dbus.Interface(
+        bus.get_object('org.bluez', '/org/bluez'),
+        'org.bluez.AgentManager1')
+
+    # Clear any leftover registration from a previous crashed run.
+    try:
+        manager.UnregisterAgent(AGENT_PATH)
+    except dbus.exceptions.DBusException:
+        pass
+
+    manager.RegisterAgent(AGENT_PATH, 'NoInputNoOutput')
+    manager.RequestDefaultAgent(AGENT_PATH)
+    print('Auto-accept pairing agent registered (NoInputNoOutput / Just Works).')
+    return agent
 
 
 class ArduinoLink:
@@ -116,6 +188,11 @@ def main():
     parser.add_argument('--serial', default=DEFAULT_SERIAL_PORT, help='Arduino serial port')
     parser.add_argument('--baud', type=int, default=DEFAULT_SERIAL_BAUD, help='Arduino serial baud')
     parser.add_argument('--adapter', default=None, help='Bluetooth adapter address (default: first available)')
+    parser.add_argument('--no-auto-accept', action='store_true',
+                        help="don't register a Just-Works pairing agent — leave the system "
+                             "default agent in charge.  Use this only if you've configured "
+                             "your own agent (e.g. bt-agent) elsewhere; without one the Pi "
+                             "will prompt for confirmation on every new phone.")
     args = parser.parse_args()
 
     try:
@@ -185,6 +262,19 @@ def main():
         except Exception:
             pass
     push_reply = _push_reply
+
+    # Register the auto-accept pairing agent before publishing the GATT
+    # peripheral.  Once published, BlueZ will start handling pair requests
+    # via this agent — no prompt on the Pi.  Keep a reference around so
+    # dbus-python doesn't garbage-collect it (the agent is a live D-Bus
+    # service object, not just a configuration value).
+    if not args.no_auto_accept:
+        try:
+            _agent = register_auto_accept_agent()  # noqa: F841 (kept alive intentionally)
+        except Exception as e:
+            print(f'WARNING: could not register auto-accept pairing agent: {e}', file=sys.stderr)
+            print('         Pairing will fall back to whatever default agent is registered,', file=sys.stderr)
+            print('         which on a headless Pi usually means no agent and pairing will fail.', file=sys.stderr)
 
     print(f'BLE peripheral "{args.name}" advertising the Nordic UART Service on adapter {adapter_addr}.')
     print(f'Forwarding commands directly to Arduino on {args.serial} @ {args.baud} baud.')
