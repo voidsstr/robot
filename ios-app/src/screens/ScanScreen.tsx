@@ -10,12 +10,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator,
-  StyleSheet, Alert, Platform,
+  StyleSheet, Alert, Platform, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import type { Device } from 'react-native-ble-plx';
-import { startScan, waitForPoweredOn, connect } from '../lib/ble';
+import { startScan, waitForPoweredOn, connect, describeBleError, BleProblem } from '../lib/ble';
 
 export const LAST_ROBOT_KEY = 'last_robot_id';
 
@@ -27,7 +27,7 @@ export default function ScanScreen({ onConnected }: Props) {
   const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [connecting, setConnecting] = useState<string | null>(null);
-  const [error, setError] = useState<string>('');
+  const [problem, setProblem] = useState<BleProblem | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
 
   // Try auto-reconnect to the last robot we paired with. This is the
@@ -69,12 +69,12 @@ export default function ScanScreen({ onConnected }: Props) {
   }, []);
 
   const beginScan = async () => {
-    setError('');
+    setProblem(null);
     setDevices([]);
     try {
       await waitForPoweredOn();
     } catch (e: any) {
-      setError(e?.message || 'Bluetooth is off');
+      setProblem(describeBleError(e));
       return;
     }
     setScanning(true);
@@ -83,20 +83,46 @@ export default function ScanScreen({ onConnected }: Props) {
     });
     stopRef.current = () => { stop(); setScanning(false); };
     // Auto-stop scan after 20s — anything not advertising by then isn't here.
-    setTimeout(() => { if (stopRef.current) stopRef.current(); }, 20000);
+    setTimeout(() => {
+      if (stopRef.current) stopRef.current();
+      // If we still have nothing, give the user something useful to do.
+      setDevices((prev) => {
+        if (prev.length === 0) {
+          setProblem({
+            title: 'No robots found',
+            detail: 'Make sure the Pi is powered on and ble_server.py is running. Then tap Scan again.',
+            action: 'rescan',
+          });
+        }
+        return prev;
+      });
+    }, 20000);
   };
 
   const handleConnect = async (d: Device) => {
     if (stopRef.current) stopRef.current();
     setConnecting(d.id);
+    setProblem(null);
     try {
       await connect(d.id);
       await AsyncStorage.setItem(LAST_ROBOT_KEY, d.id);
       onConnected(d.id, d.name || d.localName || 'Robot');
     } catch (e: any) {
       setConnecting(null);
-      Alert.alert('Pairing failed', e?.message || 'Could not connect to this robot.');
+      setProblem(describeBleError(e));
     }
+  };
+
+  const handleAction = () => {
+    if (!problem) return;
+    if (problem.action === 'open-settings') {
+      Linking.openURL('app-settings:').catch(() => {
+        Alert.alert(problem.title, problem.detail);
+      });
+      return;
+    }
+    setProblem(null);
+    beginScan();
   };
 
   return (
@@ -110,7 +136,24 @@ export default function ScanScreen({ onConnected }: Props) {
         </Text>
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {problem && (
+        <View style={styles.problemBox}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="warning" size={16} color="#fbbf24" />
+            <Text style={styles.problemTitle}>{problem.title}</Text>
+          </View>
+          <Text style={styles.problemDetail}>{problem.detail}</Text>
+          {problem.action && (
+            <TouchableOpacity style={styles.problemBtn} onPress={handleAction} activeOpacity={0.85}>
+              <Text style={styles.problemBtnText}>
+                {problem.action === 'open-settings' ? 'Open iOS Settings'
+                  : problem.action === 'rescan' ? 'Scan again'
+                  : 'Retry'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <FlatList
         data={devices}
@@ -173,7 +216,17 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: 24 },
   title: { fontSize: 22, fontWeight: '700', color: '#f1f5f9', marginTop: 10 },
   sub: { fontSize: 13, color: '#94a3b8', textAlign: 'center', marginTop: 6, lineHeight: 18 },
-  error: { color: '#f87171', textAlign: 'center', marginBottom: 12 },
+  problemBox: {
+    backgroundColor: '#451a03', borderWidth: 1, borderColor: '#92400e',
+    borderRadius: 12, padding: 12, marginBottom: 14, gap: 6,
+  },
+  problemTitle: { color: '#fde68a', fontWeight: '700', fontSize: 14 },
+  problemDetail: { color: '#fcd34d', fontSize: 12, lineHeight: 17 },
+  problemBtn: {
+    alignSelf: 'flex-start', marginTop: 4,
+    backgroundColor: '#fbbf24', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8,
+  },
+  problemBtnText: { color: '#451a03', fontWeight: '700', fontSize: 13 },
   row: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#1e293b', borderRadius: 12, padding: 14, marginBottom: 10,

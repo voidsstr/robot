@@ -1,47 +1,68 @@
 #!/usr/bin/env python3
-"""BLE -> Arduino command bridge.
+"""BLE -> Arduino command bridge + live video / photo streamer.
 
-Exposes a BLE GATT peripheral (Nordic UART Service) that an iPhone or Android
-phone can pair with, parses each incoming text command, and writes the
-matching single-character control byte directly to the Arduino over USB
-serial (/dev/ttyACM0 @ 115200 8N1). No WiFi server, no TCP loopback, no
-second daemon — this script is the only thing that needs to be running for
-BLE control.
+Exposes a BLE GATT peripheral (Nordic UART Service, plus a custom video
+notify characteristic) that an iPhone or Android phone can pair with.
+Movement commands are parsed and the matching single-character control
+byte is written directly to the Arduino over USB serial. Live video from
+the Pi camera is chunked and pushed over the video characteristic; the
+PHOTO command captures a higher-resolution still and pushes it back the
+same way with the photo flag set.
 
 GATT layout (Nordic UART Service — supported out of the box by nRF Connect,
 Adafruit Bluefruit Connect, LightBlue, etc.):
 
   Service  6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-    RX  6E400002-B5A3-F393-E0A9-E50E24DCCA9E   Write             phone -> robot
-    TX  6E400003-B5A3-F393-E0A9-E50E24DCCA9E   Notify            robot -> phone
+    RX     6E400002-B5A3-F393-E0A9-E50E24DCCA9E   Write    phone -> robot (commands)
+    TX     6E400003-B5A3-F393-E0A9-E50E24DCCA9E   Notify   robot -> phone (replies)
+    VIDEO  6E400004-B5A3-F393-E0A9-E50E24DCCA9E   Notify   robot -> phone (video + photo)
 
-Write one command per BLE write (newline optional). Accepted commands:
+Video / photo wire format — each BLE notification carries one chunk:
+
+  byte 0   FRAME_ID    rolling counter (0–255), identifies the frame
+  byte 1   CHUNK_IDX   0-based index of this chunk within the frame
+  byte 2   TOTAL       total number of chunks for this frame (1–255)
+  byte 3   FLAGS       bit 0 = 1 if this is a high-res "photo" response
+  bytes 4… JPEG_DATA   chunk of the JPEG file, in order
+
+This must match ios-app/src/lib/videoFrames.ts.
+
+Accepted text commands (written to the RX char, newline optional):
   UP / FORWARD / W / ACC / ACCELERATE       -> 'U'
   DOWN / BACK / S / DEC / DECELERATE        -> 'D'
   LEFT / A                                  -> 'L'
   RIGHT / D                                 -> 'R'
   STOP / SPACE / X                          -> 'S'
-  STATUS                                    -> reports serial port state
+  STATUS                                    -> serial + camera + stream state
+  PHOTO                                     -> capture + push a single high-res JPEG
+  VQ:<n>                                    -> set live JPEG quality (1-95)
+  VFPS:<n>                                  -> set live frame rate (1-15)
+  VRES:<w>x<h>                              -> reconfigure camera to <w>x<h> (brief gap)
+  VOFF / VON                                -> pause / resume the live stream
 
 A short reply (e.g. `OK: UP`) is pushed back as a TX notification.
 
-Requirements:  BlueZ >= 5.50, python3-dbus, python3-gi, `bluezero`, and
-  `pyserial` (`pip3 install --break-system-packages bluezero pyserial`, or
-  run scripts/install_deps.sh).
+Requirements:  BlueZ >= 5.50, python3-dbus, python3-gi, `bluezero`,
+  `pyserial`, and (for video / photo) `python3-picamera2`. Without
+  picamera2 the movement commands still work; the camera features
+  are simply disabled.
 
 Run as root (BlueZ D-Bus + advertising usually needs it):
   sudo python3 scripts/ble_server.py
   sudo python3 scripts/ble_server.py --name MyRobot --serial /dev/ttyACM0
+  sudo python3 scripts/ble_server.py --no-camera          # commands only
 """
 
 import argparse
+import io
 import sys
 import threading
 import time
 
-NUS_SERVICE = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
-NUS_RX_CHAR = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'   # Write   (phone -> robot)
-NUS_TX_CHAR = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone)
+NUS_SERVICE   = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
+NUS_RX_CHAR   = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'   # Write   (phone -> robot)
+NUS_TX_CHAR   = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone)
+NUS_VIDEO_CHAR = '6E400004-B5A3-F393-E0A9-E50E24DCCA9E'  # Notify  (robot -> phone, video)
 
 # Path our auto-accept BlueZ agent registers under.  Any unused path works;
 # it just needs to be unique and stable for the lifetime of the script.
@@ -52,7 +73,27 @@ DEFAULT_NAME = 'RobotBLE'
 DEFAULT_SERIAL_PORT = '/dev/ttyACM0'
 DEFAULT_SERIAL_BAUD = 115200
 
-# Text command -> single byte expected by src/Arduino/robot/robot.ino.
+# Video defaults — tuned for BLE bandwidth (~50–500 kbps practical depending on
+# phone + radio environment). 320x240 @ Q60 lands around 6–10 KB per frame,
+# i.e. ~30–55 chunks at 180 B payload. ~4 fps is a reasonable target.
+DEFAULT_VIDEO_FPS = 4
+DEFAULT_VIDEO_SIZE = (320, 240)
+DEFAULT_VIDEO_QUALITY = 60
+DEFAULT_PHOTO_SIZE = (1280, 960)
+DEFAULT_PHOTO_QUALITY = 85
+
+# Each BLE notification: 4 B header + CHUNK_PAYLOAD B data. iOS commonly
+# negotiates ATT MTU around 185 (payload 182), so 180 + 4 = 184 fits.
+# Bumping this requires the phone to actually negotiate a larger MTU.
+CHUNK_PAYLOAD = 180
+
+FLAG_PHOTO = 0x01
+
+# Pacing between successive chunks on the GLib main loop. Too short and we
+# starve other BLE callbacks; too long and frame rate falls. 5 ms gives
+# ~200 chunks/s which is ahead of what BLE actually pushes anyway.
+CHUNK_PACE_MS = 5
+
 # Aliases follow the same convention WifiCommandServer::parseCommand used:
 # the single-letter WASD aliases mean directions ('S' = DOWN, 'D' = RIGHT),
 # NOT the Arduino's own protocol letters.
@@ -327,6 +368,7 @@ class ArduinoLink:
     def send_byte(self, ch):
         """Send a single ASCII byte to the Arduino. Returns True on success."""
         payload = ch.encode('ascii')
+        last_err = None
         with self._lock:
             for _ in range(2):
                 try:
@@ -336,7 +378,6 @@ class ArduinoLink:
                     self._ser.flush()
                     return True
                 except Exception as e:
-                    # Drop the handle and let the next attempt reopen.
                     try:
                         if self._ser is not None:
                             self._ser.close()
@@ -353,8 +394,230 @@ class ArduinoLink:
             return self._ser is not None
 
 
+class CameraSource:
+    """Picamera2 wrapper that can supply low-res video frames and high-res
+    photos as JPEG bytes. If picamera2 isn't installed, every method is a
+    no-op and `available` is False — the rest of the server still works.
+
+    Designed for the Arducam IMX519 attached via the CSI ribbon, but works
+    with any libcamera-supported sensor (the Pi camera v2/v3 too).
+
+    Video quality, fps target, and resolution can all be changed at
+    runtime via set_*().  Quality and fps are cheap (next frame picks up
+    the new value); resolution requires a stop/configure/start cycle that
+    takes ~1 second."""
+
+    def __init__(self, video_size, photo_size, video_quality, photo_quality):
+        self._picam = None
+        self._video_size = tuple(video_size)
+        self._photo_size = tuple(photo_size)
+        self._video_quality = int(video_quality)
+        self._photo_quality = int(photo_quality)
+        self._capture_lock = threading.Lock()
+
+        try:
+            from picamera2 import Picamera2  # type: ignore
+        except ImportError:
+            print('[ble] picamera2 not installed — video + photo disabled.', file=sys.stderr)
+            print('      Install: sudo apt-get install python3-picamera2', file=sys.stderr)
+            return
+        except Exception as e:
+            print(f'[ble] picamera2 import failed ({e}); video + photo disabled.', file=sys.stderr)
+            return
+
+        self._Picamera2 = Picamera2
+        try:
+            self._open_locked()
+            print(f'[ble] camera ready at {self._video_size} (video) / {self._photo_size} (photo).',
+                  file=sys.stderr)
+        except Exception as e:
+            print(f'[ble] camera init failed ({e}); video + photo disabled.', file=sys.stderr)
+            print('      Check: rpicam-hello works? dtoverlay=imx519 in /boot/firmware/config.txt?',
+                  file=sys.stderr)
+            self._picam = None
+
+    def _open_locked(self):
+        """(Re-)configure picamera2 at self._video_size. Caller holds the lock."""
+        if self._picam is not None:
+            try: self._picam.stop()
+            except Exception: pass
+            try: self._picam.close()
+            except Exception: pass
+            self._picam = None
+        picam = self._Picamera2()
+        cfg = picam.create_video_configuration(main={'size': self._video_size, 'format': 'RGB888'})
+        picam.configure(cfg)
+        picam.start()
+        time.sleep(1.5)  # let AE/AWB settle before the first frame goes out
+        self._picam = picam
+
+    @property
+    def available(self):
+        return self._picam is not None
+
+    @property
+    def state(self):
+        return {
+            'available': self.available,
+            'video_size': self._video_size,
+            'photo_size': self._photo_size,
+            'video_quality': self._video_quality,
+            'photo_quality': self._photo_quality,
+        }
+
+    def set_video_quality(self, q):
+        q = max(1, min(95, int(q)))
+        self._video_quality = q
+        return q
+
+    def set_video_size(self, w, h):
+        """Reconfigure picamera2 to a new live-stream resolution.  Briefly
+        interrupts the stream (stop → configure → start; ~1 s)."""
+        w = max(64, min(1920, int(w)))
+        h = max(48,  min(1080, int(h)))
+        with self._capture_lock:
+            self._video_size = (w, h)
+            if self._picam is None:
+                return self._video_size
+            try:
+                self._open_locked()
+            except Exception as e:
+                print(f'[ble] camera reconfigure to {w}x{h} failed: {e}', file=sys.stderr)
+                self._picam = None
+        return self._video_size
+
+    def capture_video_jpeg(self):
+        """Capture one low-res frame and return JPEG bytes (or None)."""
+        if not self._picam:
+            return None
+        with self._capture_lock:
+            if not self._picam:
+                return None
+            try:
+                self._picam.options['quality'] = self._video_quality
+                buf = io.BytesIO()
+                self._picam.capture_file(buf, format='jpeg')
+                return buf.getvalue()
+            except Exception as e:
+                print(f'[ble] video capture failed: {e}', file=sys.stderr)
+                return None
+
+    def capture_photo_jpeg(self):
+        """Switch to the still configuration, capture one frame, switch back."""
+        if not self._picam:
+            return None
+        with self._capture_lock:
+            if not self._picam:
+                return None
+            try:
+                still_cfg = self._picam.create_still_configuration(
+                    main={'size': self._photo_size, 'format': 'RGB888'}
+                )
+                self._picam.options['quality'] = self._photo_quality
+                buf = io.BytesIO()
+                self._picam.switch_mode_and_capture_file(still_cfg, buf, format='jpeg')
+                return buf.getvalue()
+            except Exception as e:
+                print(f'[ble] photo capture failed: {e}', file=sys.stderr)
+                return None
+
+    def close(self):
+        if self._picam:
+            try:
+                self._picam.stop()
+                self._picam.close()
+            except Exception:
+                pass
+            self._picam = None
+
+
+class VideoStreamer:
+    """Chunks JPEG frames and pushes them over the video characteristic.
+
+    Runs entirely on the GLib main loop — bluezero's D-Bus signalling
+    isn't safe to call from arbitrary worker threads, so chunk-by-chunk
+    transmission is scheduled via GLib.timeout_add. While a frame is
+    being flushed, any new live-video frames are dropped (latest wins).
+    PHOTO frames are queued and sent as soon as the current frame
+    finishes."""
+
+    def __init__(self, video_char):
+        self._video_char = video_char
+        self._frame_id = 0
+        self._sending = False
+        self._pending_photo = None  # JPEG bytes waiting to go out after current frame
+        # Diagnostics — surfaced via STATUS so the user can tell at a glance
+        # whether the BLE link is bandwidth-bound vs camera-bound.
+        self._frames_sent = 0
+        self._frames_dropped = 0
+        self._photos_sent = 0
+        # GLib is imported lazily so --help works without gi.
+        from gi.repository import GLib  # type: ignore
+        self._GLib = GLib
+
+    @property
+    def stats(self):
+        return {'sent': self._frames_sent, 'dropped': self._frames_dropped,
+                'photos': self._photos_sent}
+
+    def _next_frame_id(self):
+        fid = self._frame_id
+        self._frame_id = (self._frame_id + 1) & 0xFF
+        return fid
+
+    def _make_chunks(self, frame_id, jpeg_bytes, is_photo):
+        flags = FLAG_PHOTO if is_photo else 0
+        total = (len(jpeg_bytes) + CHUNK_PAYLOAD - 1) // CHUNK_PAYLOAD
+        total = max(1, min(total, 255))
+        for idx in range(total):
+            start = idx * CHUNK_PAYLOAD
+            chunk = jpeg_bytes[start:start + CHUNK_PAYLOAD]
+            yield bytes([frame_id, idx, total, flags]) + chunk
+
+    def push_video_frame(self, jpeg_bytes):
+        """Try to enqueue a live-video frame. Dropped if a frame is in flight."""
+        if self._sending:
+            self._frames_dropped += 1
+            return False
+        self._frames_sent += 1
+        self._begin_send(jpeg_bytes, is_photo=False)
+        return True
+
+    def push_photo(self, jpeg_bytes):
+        """Send a high-res photo frame. Queued behind an in-flight frame
+        so its chunks aren't interleaved."""
+        self._photos_sent += 1
+        if self._sending:
+            self._pending_photo = jpeg_bytes
+            return
+        self._begin_send(jpeg_bytes, is_photo=True)
+
+    def _begin_send(self, jpeg_bytes, is_photo):
+        self._sending = True
+        chunks_iter = self._make_chunks(self._next_frame_id(), jpeg_bytes, is_photo)
+
+        def push_next():
+            chunk = next(chunks_iter, None)
+            if chunk is None:
+                self._sending = False
+                # If a photo was queued while we were flushing video, send it now.
+                if self._pending_photo is not None:
+                    pending, self._pending_photo = self._pending_photo, None
+                    self._begin_send(pending, is_photo=True)
+                return False  # stop timeout
+            try:
+                self._video_char.set_value(list(chunk))
+            except Exception as e:
+                print(f'[ble] video set_value failed: {e}', file=sys.stderr)
+                self._sending = False
+                return False
+            return True  # keep timeout firing
+
+        self._GLib.timeout_add(CHUNK_PACE_MS, push_next)
+
+
 def main():
-    parser = argparse.ArgumentParser(description='BLE -> Arduino command bridge')
+    parser = argparse.ArgumentParser(description='BLE -> Arduino command bridge + video stream')
     parser.add_argument('--name', default=DEFAULT_NAME, help='BLE advertised name')
     parser.add_argument('--serial', default=DEFAULT_SERIAL_PORT, help='Arduino serial port')
     parser.add_argument('--baud', type=int, default=DEFAULT_SERIAL_BAUD, help='Arduino serial baud')
@@ -378,6 +641,12 @@ def main():
                         help="don't monitor the BT adapter's Powered state.  By default we "
                              "exit (non-zero) when the adapter goes down so systemd can "
                              "restart us fresh.")
+    parser.add_argument('--no-camera', action='store_true', help='Disable video/photo (commands only)')
+    parser.add_argument('--video-fps', type=int, default=DEFAULT_VIDEO_FPS, help='Live video frame rate')
+    parser.add_argument('--video-width', type=int, default=DEFAULT_VIDEO_SIZE[0])
+    parser.add_argument('--video-height', type=int, default=DEFAULT_VIDEO_SIZE[1])
+    parser.add_argument('--photo-width', type=int, default=DEFAULT_PHOTO_SIZE[0])
+    parser.add_argument('--photo-height', type=int, default=DEFAULT_PHOTO_SIZE[1])
     args = parser.parse_args()
 
     try:
@@ -391,6 +660,11 @@ def main():
     except ImportError:
         sys.exit('pyserial is not installed. Run: pip3 install --break-system-packages pyserial')
 
+    try:
+        from gi.repository import GLib  # type: ignore
+    except ImportError:
+        sys.exit('python3-gi is not installed. Run: sudo apt-get install python3-gi')
+
     adapter_addr = args.adapter
     if adapter_addr is None:
         adapters = list(adapter.Adapter.available())
@@ -399,16 +673,26 @@ def main():
         adapter_addr = adapters[0].address
 
     link = ArduinoLink(args.serial, args.baud)
+    camera = (CameraSource(
+        video_size=(args.video_width, args.video_height),
+        photo_size=(args.photo_width, args.photo_height),
+        video_quality=DEFAULT_VIDEO_QUALITY,
+        photo_quality=DEFAULT_PHOTO_QUALITY,
+    ) if not args.no_camera else None)
 
     robot = peripheral.Peripheral(adapter_addr, local_name=args.name)
     robot.add_service(srv_id=1, uuid=NUS_SERVICE, primary=True)
 
-    # Forward declaration; assigned after the TX characteristic is created.
+    # Forward decls; assigned after the TX / VIDEO characteristics are created.
     push_reply = lambda _line: None
+    streamer = None
 
     # Forward-declared so handle_command can call it before we instantiate
     # the watchdog further down.  Re-assigned at startup if --watchdog > 0.
     feed_watchdog = lambda: None
+    set_video_fps = lambda _fps: None        # re-assigned once _start_video exists
+    pause_video   = lambda: None
+    resume_video  = lambda: None
 
     def handle_command(text):
         cmd = text.strip().upper()
@@ -418,8 +702,80 @@ def main():
             push_reply('BYE')
             return
         if cmd == 'STATUS':
-            push_reply('OK: serial open' if link.is_open() else 'OK: serial closed')
+            parts = ['OK:']
+            parts.append('serial=' + ('open' if link.is_open() else 'closed'))
+            if camera and camera.available:
+                st = camera.state
+                parts.append(f'camera=on res={st["video_size"][0]}x{st["video_size"][1]} q={st["video_quality"]}')
+            else:
+                parts.append('camera=off')
+            if streamer is not None:
+                s = streamer.stats
+                parts.append(f'frames={s["sent"]} dropped={s["dropped"]} photos={s["photos"]}')
+            push_reply(' '.join(parts))
             return
+        if cmd == 'PHOTO':
+            if not camera or not camera.available:
+                push_reply('ERR: camera unavailable — install python3-picamera2 + enable IMX519 overlay')
+                return
+            push_reply('OK: PHOTO')
+
+            def _capture_and_push():
+                jpeg = camera.capture_photo_jpeg()
+                if jpeg and streamer is not None:
+                    streamer.push_photo(jpeg)
+                else:
+                    push_reply('ERR: photo capture failed')
+                return False
+
+            # Schedule on the main loop so D-Bus calls stay on-thread; the
+            # capture itself can take 200–600 ms which briefly stalls the
+            # BLE loop, but that's acceptable for a one-shot photo.
+            GLib.idle_add(_capture_and_push)
+            return
+
+        # --- Runtime video controls.  All optional; the app uses these to
+        # let the user pick Low / Medium / High presets without restarting
+        # the bridge.  Each replies with a fresh STATUS so the app can
+        # confirm the change took.
+        if cmd.startswith('VQ:'):
+            if not camera or not camera.available:
+                push_reply('ERR: camera unavailable')
+                return
+            try:
+                q = camera.set_video_quality(cmd[3:])
+                push_reply(f'OK: VQ={q}')
+            except Exception as e:
+                push_reply(f'ERR: bad VQ ({e})')
+            return
+        if cmd.startswith('VFPS:'):
+            try:
+                fps = max(1, min(15, int(cmd[5:])))
+                set_video_fps(fps)
+                push_reply(f'OK: VFPS={fps}')
+            except Exception as e:
+                push_reply(f'ERR: bad VFPS ({e})')
+            return
+        if cmd.startswith('VRES:'):
+            if not camera or not camera.available:
+                push_reply('ERR: camera unavailable')
+                return
+            try:
+                w, h = cmd[5:].split('X')
+                size = camera.set_video_size(int(w), int(h))
+                push_reply(f'OK: VRES={size[0]}x{size[1]}')
+            except Exception as e:
+                push_reply(f'ERR: bad VRES ({e}); expected WxH e.g. VRES:320x240')
+            return
+        if cmd == 'VOFF':
+            pause_video()
+            push_reply('OK: VOFF')
+            return
+        if cmd == 'VON':
+            resume_video()
+            push_reply('OK: VON')
+            return
+
         byte = COMMAND_MAP.get(cmd)
         if byte is None:
             push_reply('ERR: Unknown command')
@@ -437,14 +793,21 @@ def main():
             if part.strip():
                 handle_command(part)
 
+    # RX (commands in) — write-only, with our callback.
     robot.add_characteristic(srv_id=1, chr_id=1, uuid=NUS_RX_CHAR,
                              value=[], notifying=False,
                              flags=['write', 'write-without-response'],
                              write_callback=rx_write)
+    # TX (text replies out).
     robot.add_characteristic(srv_id=1, chr_id=2, uuid=NUS_TX_CHAR,
                              value=[], notifying=False, flags=['notify'])
+    # VIDEO (video + photo chunks out).
+    robot.add_characteristic(srv_id=1, chr_id=3, uuid=NUS_VIDEO_CHAR,
+                             value=[], notifying=False, flags=['notify'])
 
-    tx_char = robot.characteristics[-1]
+    # bluezero stores characteristics in registration order.
+    tx_char = robot.characteristics[1]
+    video_char = robot.characteristics[2]
 
     def _push_reply(line):
         try:
@@ -466,6 +829,72 @@ def main():
             print('         Pairing will fall back to whatever default agent is registered,', file=sys.stderr)
             print('         which on a headless Pi usually means no agent and pairing will fail.', file=sys.stderr)
 
+    streamer = VideoStreamer(video_char)
+
+    # Periodic video capture, only kicked off after a client connects so we
+    # don't burn camera + CPU + battery while nobody's watching.  Driven by
+    # the BlueZ-level connect/disconnect signals below (same path the
+    # disconnect safety-stop uses) so we don't depend on bluezero exposing
+    # its own on_connect/on_disconnect hooks.
+    video_state = {
+        'timer_id': None,
+        'fps': max(1, min(15, args.video_fps)),
+        'paused': False,
+        'connected': False,
+    }
+
+    def _start_video():
+        if not camera or not camera.available:
+            return
+        if video_state['paused']:
+            return
+        if video_state['timer_id'] is not None:
+            return
+        fps = video_state['fps']
+        interval_ms = max(50, int(1000 / max(1, fps)))
+        print(f'[ble] starting video stream at ~{fps} fps', file=sys.stderr)
+
+        def _tick():
+            if video_state['timer_id'] is None:
+                return False
+            jpeg = camera.capture_video_jpeg()
+            if jpeg and streamer is not None:
+                streamer.push_video_frame(jpeg)
+            return True
+
+        video_state['timer_id'] = GLib.timeout_add(interval_ms, _tick)
+
+    def _stop_video():
+        tid = video_state['timer_id']
+        if tid is not None:
+            try:
+                GLib.source_remove(tid)
+            except Exception:
+                pass
+            video_state['timer_id'] = None
+            print('[ble] stopped video stream', file=sys.stderr)
+
+    def _set_video_fps(fps):
+        video_state['fps'] = max(1, min(15, int(fps)))
+        # Bounce the timer so the new interval takes effect immediately,
+        # but only if we're actively streaming.
+        if video_state['timer_id'] is not None:
+            _stop_video()
+            _start_video()
+    set_video_fps = _set_video_fps  # publish to handle_command  # noqa: F811
+
+    def _pause_video():
+        video_state['paused'] = True
+        _stop_video()
+    def _resume_video():
+        video_state['paused'] = False
+        # Resume only matters if a client is connected; otherwise we'll
+        # naturally start on the next connect.
+        if video_state['connected']:
+            _start_video()
+    pause_video  = _pause_video   # noqa: F811
+    resume_video = _resume_video  # noqa: F811
+
     # Spin up the activity watchdog (opt-in via --watchdog).  set_connected()
     # below is wired into the BlueZ disconnect monitor so the watchdog only
     # nags us while a phone is actually paired and connected.
@@ -478,17 +907,35 @@ def main():
     # Install the disconnect safety-stop unless explicitly disabled.  This is
     # the PRIMARY defensive measure for tank-style robots: BLE drops →
     # Arduino gets 'S' → motors return to neutral within a few hundred ms.
+    # We also use these callbacks to start / stop the video stream so the
+    # camera only runs while a phone is actually watching.
+    def _on_connect(_path):
+        video_state['connected'] = True
+        if watchdog: watchdog.set_connected(True)
+        _start_video()
+    def _on_disconnect(_path):
+        video_state['connected'] = False
+        if watchdog: watchdog.set_connected(False)
+        _stop_video()
+
     if not args.no_disconnect_stop:
-        def _on_connect(_path):
-            if watchdog: watchdog.set_connected(True)
-        def _on_disconnect(_path):
-            if watchdog: watchdog.set_connected(False)
         try:
             install_disconnect_safety_stop(link, on_connect=_on_connect,
                                            on_disconnect=_on_disconnect)
         except Exception as e:
             print(f'WARNING: could not install disconnect safety stop: {e}', file=sys.stderr)
             print('         BLE drops mid-drive will not auto-stop the robot.', file=sys.stderr)
+            # Disconnect monitor failed: fall back to streaming continuously
+            # so the user still gets video, even though we lose the per-
+            # client start/stop optimisation.
+            if camera and camera.available:
+                print('[ble] streaming continuously (no connect-hook)', file=sys.stderr)
+                GLib.idle_add(lambda: (_start_video(), False)[1])
+    else:
+        # User opted out of the disconnect monitor entirely; we still want
+        # video so kick it off on the main loop.
+        if camera and camera.available:
+            GLib.idle_add(lambda: (_start_video(), False)[1])
 
     # Adapter-health monitor — exits non-zero if the BT adapter goes away so
     # systemd's Restart=always brings us back fresh.  In-process recovery is
@@ -501,7 +948,13 @@ def main():
 
     print(f'BLE peripheral "{args.name}" advertising the Nordic UART Service on adapter {adapter_addr}.')
     print(f'Forwarding commands directly to Arduino on {args.serial} @ {args.baud} baud.')
+    if camera and camera.available:
+        print(f'Video: {args.video_width}x{args.video_height} @ {args.video_fps} fps. '
+              f'Photo: {args.photo_width}x{args.photo_height}.')
+    else:
+        print('Video / photo disabled (no camera).')
     print('Pair from your phone (nRF Connect / Bluefruit Connect / LightBlue). Ctrl-C to stop.')
+
     try:
         robot.publish()
     except KeyboardInterrupt:
@@ -517,6 +970,9 @@ def main():
             pass
         if watchdog:
             watchdog.stop()
+        _stop_video()
+        if camera:
+            camera.close()
 
 
 if __name__ == '__main__':

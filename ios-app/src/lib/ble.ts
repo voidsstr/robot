@@ -1,22 +1,92 @@
-// Thin wrapper around react-native-ble-plx for the Nordic UART Service.
+// Thin wrapper around react-native-ble-plx for the Nordic UART Service +
+// the robot's video stream extension.
 //
 // The robot's BLE server (scripts/ble_server.py) advertises NUS:
 //   service     6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-//   write char  6E400002-B5A3-F393-E0A9-E50E24DCCA9E   phone → robot
+//   write char  6E400002-B5A3-F393-E0A9-E50E24DCCA9E   phone → robot (commands)
 //   notify char 6E400003-B5A3-F393-E0A9-E50E24DCCA9E   robot → phone (replies)
+//   notify char 6E400004-B5A3-F393-E0A9-E50E24DCCA9E   robot → phone (video frames)
 //
 // Each write to the RX char is one command — UP, DOWN, LEFT, RIGHT, STOP
-// (or the aliases the server accepts: FORWARD, BACK, W, A, S, D, X, STATUS).
-// Trailing newline is optional; the server strips it.
+// (or the aliases the server accepts: FORWARD, BACK, W, A, S, D, X, STATUS),
+// plus the new PHOTO command which asks the Pi to send back a single
+// high-res JPEG over the video characteristic.
+//
+// Video and photo frames share one notify characteristic; see
+// ./videoFrames.ts for the chunk-reassembly wire format. Live video is
+// flagged with the photo bit clear; the response to PHOTO has it set.
+// The Pi side (scripts/ble_server.py) emits chunks via picamera2 (Arducam
+// IMX519) at ~4 fps once a phone connects.
 
-import { BleManager, Device, State, Subscription } from 'react-native-ble-plx';
+import { BleManager, BleError, BleErrorCode, Device, State, Subscription } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
+import { CompleteFrame, FrameReassembler } from './videoFrames';
+import { QualitySettings } from './videoQuality';
+
+// Map a low-level BleError / state into a sentence + an actionable hint
+// the user can do something with.  Falls back to the raw message for
+// anything we haven't classified yet.
+export interface BleProblem {
+  title: string;
+  detail: string;
+  // Suggested next-step button label, if any.
+  action?: 'open-settings' | 'retry' | 'rescan';
+}
+
+export function describeBleError(e: any): BleProblem {
+  const msg: string = (e?.message || String(e || '')).trim();
+  const code: number | undefined = e?.errorCode;
+  // ble-plx surfaces these consistently across iOS/Android.
+  if (code === BleErrorCode.BluetoothPoweredOff) {
+    return {
+      title: 'Bluetooth is off',
+      detail: 'Turn Bluetooth on in iOS Settings, then come back.',
+      action: 'open-settings',
+    };
+  }
+  if (code === BleErrorCode.BluetoothUnauthorized) {
+    return {
+      title: 'Bluetooth permission denied',
+      detail: 'Allow Bluetooth for Robot Control in iOS Settings → Robot Control.',
+      action: 'open-settings',
+    };
+  }
+  if (code === BleErrorCode.BluetoothUnsupported) {
+    return { title: 'No Bluetooth available', detail: 'This device does not support BLE.' };
+  }
+  if (code === BleErrorCode.DeviceNotFound || code === BleErrorCode.DeviceNotConnected) {
+    return {
+      title: 'Robot not in range',
+      detail: "We can't see the robot. Make sure it's powered on and within ~10 m, then retry.",
+      action: 'retry',
+    };
+  }
+  if (code === BleErrorCode.DeviceDisconnected) {
+    return {
+      title: 'Robot disconnected',
+      detail: 'The BLE link dropped. Trying to reconnect…',
+      action: 'retry',
+    };
+  }
+  if (code === BleErrorCode.DeviceAlreadyConnected) {
+    return { title: 'Already connected', detail: 'iOS thinks the robot is already connected. Retry should clear this.', action: 'retry' };
+  }
+  if (code === BleErrorCode.OperationTimedOut) {
+    return {
+      title: 'Connection timed out',
+      detail: 'The robot did not respond in time. Make sure it is powered on and try again.',
+      action: 'retry',
+    };
+  }
+  return { title: 'Bluetooth error', detail: msg || 'Unknown failure.', action: 'retry' };
+}
 
 export const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 export const NUS_RX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 export const NUS_TX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+export const NUS_VIDEO_CHAR = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
 
-export type RobotCommand = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'STOP' | 'STATUS';
+export type RobotCommand = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'STOP' | 'STATUS' | 'PHOTO';
 
 let _manager: BleManager | null = null;
 export function getManager(): BleManager {
@@ -68,9 +138,22 @@ export function startScan(onFound: ScanCb): () => void {
 
 export interface RobotConnection {
   device: Device;
+  /** Whether the live video characteristic was found and we're subscribed
+   *  to it.  When false, the Pi is on an older firmware that only speaks
+   *  commands — control still works, but the video panel will sit empty. */
+  hasVideo: boolean;
   disconnect: () => Promise<void>;
   send: (cmd: string) => Promise<void>;
   onReply: (cb: (line: string) => void) => () => void;
+  onFrame: (cb: (frame: CompleteFrame) => void) => () => void;
+  requestPhoto: () => Promise<void>;
+  /** Send VRES/VQ/VFPS so the Pi switches the live stream to a new
+   *  quality preset.  Cheap to call repeatedly; the Pi answers with
+   *  OK: VRES=… / VQ=… / VFPS=… on the TX channel. */
+  applyQuality: (q: QualitySettings) => Promise<void>;
+  /** Pause/resume the live stream from the Pi.  Useful when the app
+   *  goes into the background — no point burning the camera. */
+  setStreaming: (on: boolean) => Promise<void>;
 }
 
 export async function connect(deviceId: string): Promise<RobotConnection> {
@@ -79,13 +162,19 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
   // if we've seen it during a scan; otherwise we need to connect fresh.
   try { await m.stopDeviceScan(); } catch {}
   const device = await m.connectToDevice(deviceId, { autoConnect: false, timeout: 12000 });
+  // Bigger MTU = bigger BLE notifications = fewer chunks per JPEG frame.
+  // Android exposes requestMTU; iOS auto-negotiates and ignores requests
+  // (the call rejects silently). Either way, do best-effort.
+  try { await device.requestMTU(517); } catch {}
   await device.discoverAllServicesAndCharacteristics();
 
   const subs: Subscription[] = [];
   const replyCbs: Array<(line: string) => void> = [];
+  const frameCbs: Array<(frame: CompleteFrame) => void> = [];
+  const reassembler = new FrameReassembler();
 
-  // Subscribe to TX notifications so callers get the robot's replies.
-  const txSub = device.monitorCharacteristicForService(
+  // Subscribe to TX notifications so callers get the robot's text replies.
+  subs.push(device.monitorCharacteristicForService(
     NUS_SERVICE,
     NUS_TX_CHAR,
     (err, characteristic) => {
@@ -101,13 +190,54 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
         if (line) for (const cb of replyCbs) cb(line);
       }
     },
-  );
-  subs.push(txSub);
+  ));
 
-  return {
+  // Subscribe to the video characteristic. If the Pi server hasn't been
+  // updated to expose it yet, monitor will surface a "characteristic not
+  // found" error on the first callback — flip hasVideo off so the UI can
+  // tell the user. Commands still work either way.
+  let hasVideo = true;
+  const services = await device.services();
+  const nus = services.find(s => s.uuid.toLowerCase() === NUS_SERVICE);
+  if (nus) {
+    const chars = await nus.characteristics();
+    hasVideo = chars.some(c => c.uuid.toLowerCase() === NUS_VIDEO_CHAR);
+  }
+  if (hasVideo) {
+    try {
+      subs.push(device.monitorCharacteristicForService(
+        NUS_SERVICE,
+        NUS_VIDEO_CHAR,
+        (err, characteristic) => {
+          if (err) {
+            // Don't spam — but do surface the first failure so debugging
+            // a flaky link isn't a black box.
+            // eslint-disable-next-line no-console
+            console.warn('[ble] video monitor error', err.message);
+            return;
+          }
+          const b64 = characteristic?.value;
+          if (!b64) return;
+          const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
+          const frame = reassembler.ingest(bytes);
+          if (frame) {
+            for (const cb of frameCbs) cb(frame);
+          }
+        },
+      ));
+    } catch (e: any) {
+      hasVideo = false;
+      // eslint-disable-next-line no-console
+      console.warn('[ble] video subscribe failed', e?.message);
+    }
+  }
+
+  const conn: RobotConnection = {
     device,
+    hasVideo,
     disconnect: async () => {
       for (const s of subs) try { s.remove(); } catch {}
+      reassembler.reset();
       try { await device.cancelConnection(); } catch {}
     },
     send: async (cmd: string) => {
@@ -127,5 +257,27 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
         if (i >= 0) replyCbs.splice(i, 1);
       };
     },
+    onFrame: (cb) => {
+      frameCbs.push(cb);
+      return () => {
+        const i = frameCbs.indexOf(cb);
+        if (i >= 0) frameCbs.splice(i, 1);
+      };
+    },
+    requestPhoto: async () => {
+      await conn.send('PHOTO');
+    },
+    applyQuality: async (q) => {
+      // Resolution change is the heaviest (camera reconfigure on the Pi
+      // takes ~1 s); fps + quality are essentially free.  Send res first
+      // so the gap is over before the new fps/quality kick in.
+      await conn.send(`VRES:${q.width}x${q.height}`);
+      await conn.send(`VQ:${q.quality}`);
+      await conn.send(`VFPS:${q.fps}`);
+    },
+    setStreaming: async (on) => {
+      await conn.send(on ? 'VON' : 'VOFF');
+    },
   };
+  return conn;
 }
