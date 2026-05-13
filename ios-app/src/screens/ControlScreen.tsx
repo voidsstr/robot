@@ -43,36 +43,81 @@ type Props = {
   onDisconnected: () => void;
 };
 
+// Reconnect strategy: when BLE drops, try a handful of times with a short
+// backoff before giving up.  iOS's BLE stack sometimes refuses an immediate
+// reconnect to the same peripheral, so we wait briefly before the first try.
+const RECONNECT_ATTEMPTS = 6;
+const RECONNECT_DELAYS_MS = [800, 1500, 3000, 5000, 8000, 12000];
+
 export default function ControlScreen({ deviceId, deviceName, onDisconnected }: Props) {
   const connRef = useRef<RobotConnection | null>(null);
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [status, setStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>('connecting');
   const [lastReply, setLastReply] = useState<string>('');
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const repeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef<number>(0);
+  const cancelledRef = useRef<boolean>(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
+    cancelledRef.current = false;
+
+    // Single attempt to establish (or re-establish) the BLE connection.
+    // Wires up reply notifications and the auto-reconnect-on-disconnect
+    // handler.  Called from both the initial useEffect run and from
+    // scheduleReconnect() below.
+    const attemptConnect = async (isReconnect: boolean) => {
+      if (cancelledRef.current) return;
+      setStatus(isReconnect ? 'reconnecting' : 'connecting');
       try {
         const conn = await connect(deviceId);
-        if (cancelled) {
+        if (cancelledRef.current) {
           await conn.disconnect();
           return;
         }
         connRef.current = conn;
+        reconnectAttemptRef.current = 0;     // success — reset backoff
         setStatus('connected');
         conn.onReply((line) => setLastReply(line));
         conn.device.onDisconnected(() => {
-          setStatus('disconnected');
+          // Pi side fires a safety STOP on disconnect already (ble_server.py
+          // listens to BlueZ's PropertiesChanged), so the robot is already
+          // halted — our job here is to claw the connection back.
+          connRef.current = null;
+          scheduleReconnect();
         });
       } catch (e: any) {
-        Alert.alert('Connection lost', e?.message || 'Robot is unreachable.');
-        setStatus('disconnected');
+        // eslint-disable-next-line no-console
+        console.warn('[ble] connect failed', e?.message);
+        // Fall through into the reconnect ladder; if we exhaust attempts,
+        // scheduleReconnect will surface the failure.
+        scheduleReconnect();
       }
-    })();
+    };
+
+    // Schedule the next reconnect attempt using a small backoff so we
+    // don't hammer the BLE stack while it's still tearing the old
+    // connection down.  Gives up after RECONNECT_ATTEMPTS tries and
+    // shows the user the "Back to pairing" button.
+    const scheduleReconnect = () => {
+      if (cancelledRef.current) return;
+      const n = reconnectAttemptRef.current;
+      if (n >= RECONNECT_ATTEMPTS) {
+        setStatus('disconnected');
+        return;
+      }
+      const delay = RECONNECT_DELAYS_MS[Math.min(n, RECONNECT_DELAYS_MS.length - 1)];
+      reconnectAttemptRef.current = n + 1;
+      setStatus('reconnecting');
+      reconnectTimerRef.current = setTimeout(() => attemptConnect(true), delay);
+    };
+
+    attemptConnect(false);
+
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       if (repeatTimerRef.current) clearInterval(repeatTimerRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       // Best-effort stop + cleanup. Fire-and-forget; nothing to await on unmount.
       const conn = connRef.current;
       if (conn) {
@@ -161,6 +206,7 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
           <Text style={styles.title}>{deviceName}</Text>
           <Text style={styles.subtitle}>
             {status === 'connecting' ? 'Connecting…'
+              : status === 'reconnecting' ? `Reconnecting… (try ${reconnectAttemptRef.current}/${RECONNECT_ATTEMPTS})`
               : status === 'connected' ? '● Connected'
               : '○ Disconnected'}
           </Text>
