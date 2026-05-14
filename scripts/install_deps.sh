@@ -18,16 +18,21 @@ sudo apt-get install -y \
     libusb-1.0-0-dev \
     libgps-dev \
     bluez python3 python3-dbus python3-gi python3-pip \
-    python3-picamera2 python3-pil
+    python3-picamera2 python3-pil python3-pil.imagetk python3-tk
 # Camera CLI tools — package name varies across Pi OS releases; either is fine.
 sudo apt-get install -y rpicam-apps 2>/dev/null || sudo apt-get install -y libcamera-apps 2>/dev/null || true
 
 echo "==> Installing Python packages (bluezero for BLE, anthropic for the lawn camera)"
 # Debian 12 marks the system Python as externally managed (PEP 668); these
 # aren't packaged, so install them for the system Python the services use.
-sudo pip3 install --break-system-packages bluezero pyserial anthropic rplidar || \
-    pip3 install --user bluezero pyserial anthropic rplidar || \
-    echo "  (pip install failed — BLE control / lawn camera / lidar will be unavailable until installed)"
+sudo pip3 install --break-system-packages bluezero pyserial anthropic rplidar tkintermapview || \
+    pip3 install --user bluezero pyserial anthropic rplidar tkintermapview || \
+    echo "  (pip install failed — BLE control / lawn camera / lidar / desktop GUI will be unavailable until installed)"
+
+# gpsd Python bindings — optional, only used by scripts/wifi_desktop.py when
+# a GPS module is attached.  Apt name varies (Bookworm: python3-gps), and on
+# minimal images it just isn't there.  Don't fail if it's unavailable.
+sudo apt-get install -y python3-gps 2>/dev/null || true
 
 # --- arduino-cli -------------------------------------------------------------
 if ! command -v arduino-cli >/dev/null 2>&1; then

@@ -220,6 +220,29 @@ sudo systemctl start robot-daemon
 sudo journalctl -u robot-daemon -f
 ```
 
+#### Optional: WiFi mode with the desktop GUI
+
+If you're sitting at the Pi (HDMI display, or `ssh -X`) and want a live
+camera feed + a lidar-on-map view on the desktop while you drive, use:
+
+```bash
+# Auto GPS (if gpsd is running), or pass a fixed --lat/--lng:
+bash scripts/run-wifi-desktop.sh --lat 40.7128 --lng -74.0060
+```
+
+This stops `robot-ble.service` first (it owns the camera + lidar), then
+spawns two Tk windows — *Robot Camera* (live IMX519 preview) and *Robot
+Map* (OSM tiles via `tkintermapview` with the robot at the GPS fix and
+a polygon overlay drawn from the latest RPLidar scan). The map supports
+pan/zoom; the lidar polygon sits at true-world scale so zooming in
+spreads it out. Once both windows are up, `bin/robot wifi-server` runs
+in the foreground for keyboard control. Ctrl-C in the terminal tears
+the GUI down too.
+
+Needs `python3-tk`, `python3-pil.imagetk`, `python3-gps` (optional), and
+the pip package `tkintermapview` — all installed by
+`scripts/install_deps.sh`.
+
 ### 3a. Drive over WiFi from the control computer
 
 ```bash

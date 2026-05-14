@@ -504,6 +504,21 @@ class CameraSource:
                 print(f'[ble] video capture failed: {e}', file=sys.stderr)
                 return None
 
+    def capture_video_rgb(self):
+        """Capture one frame as a height×width×3 uint8 numpy array (RGB888).
+        Used by the on-Pi desktop GUI to avoid a JPEG encode/decode round
+        trip when displaying frames locally."""
+        if not self._picam:
+            return None
+        with self._capture_lock:
+            if not self._picam:
+                return None
+            try:
+                return self._picam.capture_array('main')
+            except Exception as e:
+                print(f'[ble] rgb capture failed: {e}', file=sys.stderr)
+                return None
+
     def capture_photo_jpeg(self):
         """Switch to the still configuration, capture one frame, switch back."""
         if not self._picam:
