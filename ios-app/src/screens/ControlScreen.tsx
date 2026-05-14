@@ -51,6 +51,7 @@ import {
 import {
   QualityPreset, PRESETS, getQualityPreset, setQualityPreset, settingsFor, DEFAULT_PRESET,
 } from '../lib/videoQuality';
+import MapModal from './MapModal';
 import { LAST_ROBOT_KEY } from './ScanScreen';
 
 type Props = {
@@ -114,6 +115,7 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
   const [problem, setProblem] = useState<BleProblem | null>(null);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [quality, setQuality] = useState<QualityPreset>(DEFAULT_PRESET);
 
@@ -440,6 +442,17 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
               : '○ Disconnected'}
           </Text>
         </View>
+        <TouchableOpacity
+          onPress={() => setShowMap(true)}
+          style={styles.headerIcon}
+          disabled={status !== 'connected'}
+        >
+          <Ionicons
+            name="map-outline"
+            size={26}
+            color={status === 'connected' ? '#38bdf8' : '#475569'}
+          />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerIcon}>
           <Ionicons name="settings-outline" size={26} color="#94a3b8" />
         </TouchableOpacity>
@@ -555,6 +568,13 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
         quality={quality}
         onChangeQuality={changeQuality}
         onClose={() => setShowSettings(false)}
+      />
+
+      <MapModal
+        visible={showMap}
+        conn={connRef.current}
+        connected={status === 'connected'}
+        onClose={() => setShowMap(false)}
       />
     </View>
   );

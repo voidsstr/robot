@@ -20,6 +20,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSBluetoothAlwaysUsageDescription": "Robot Control uses Bluetooth to discover, pair with, and send movement commands to your robot.",
         "NSBluetoothPeripheralUsageDescription": "Robot Control uses Bluetooth to discover, pair with, and send movement commands to your robot.",
+        "NSLocationWhenInUseUsageDescription": "Robot Control uses your location to anchor the lidar map: the robot is plotted at your current position and its scan points are placed at real-world coordinates around you.",
         "UIBackgroundModes": [
           "bluetooth-central"
         ]
@@ -56,6 +57,12 @@
           "ios": {
             "deploymentTarget": "15.1"
           }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Robot Control uses your location to anchor the lidar map: the robot is plotted at your current position and its scan points are placed at real-world coordinates around you."
         }
       ]
     ],
