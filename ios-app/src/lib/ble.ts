@@ -21,6 +21,7 @@
 import { BleManager, BleError, BleErrorCode, Device, State, Subscription } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { CompleteFrame, FrameReassembler } from './videoFrames';
+import { LidarScan, LidarReassembler } from './lidarFrames';
 import { QualitySettings } from './videoQuality';
 
 // Map a low-level BleError / state into a sentence + an actionable hint
@@ -85,6 +86,7 @@ export const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 export const NUS_RX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 export const NUS_TX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 export const NUS_VIDEO_CHAR = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
+export const NUS_LIDAR_CHAR = '6e400005-b5a3-f393-e0a9-e50e24dcca9e';
 
 export type RobotCommand = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'STOP' | 'STATUS' | 'PHOTO';
 
@@ -142,10 +144,13 @@ export interface RobotConnection {
    *  to it.  When false, the Pi is on an older firmware that only speaks
    *  commands — control still works, but the video panel will sit empty. */
   hasVideo: boolean;
+  /** Whether the lidar characteristic exists on the connected robot. */
+  hasLidar: boolean;
   disconnect: () => Promise<void>;
   send: (cmd: string) => Promise<void>;
   onReply: (cb: (line: string) => void) => () => void;
   onFrame: (cb: (frame: CompleteFrame) => void) => () => void;
+  onLidarScan: (cb: (scan: LidarScan) => void) => () => void;
   requestPhoto: () => Promise<void>;
   /** Send VRES/VQ/VFPS so the Pi switches the live stream to a new
    *  quality preset.  Cheap to call repeatedly; the Pi answers with
@@ -154,6 +159,9 @@ export interface RobotConnection {
   /** Pause/resume the live stream from the Pi.  Useful when the app
    *  goes into the background — no point burning the camera. */
   setStreaming: (on: boolean) => Promise<void>;
+  /** Start/stop the RPLidar's continuous scan.  The Pi replies with
+   *  OK: LIDAR=on / OK: LIDAR=off, or ERR: lidar unavailable (…). */
+  setLidar: (on: boolean) => Promise<void>;
 }
 
 export async function connect(deviceId: string): Promise<RobotConnection> {
@@ -171,7 +179,9 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
   const subs: Subscription[] = [];
   const replyCbs: Array<(line: string) => void> = [];
   const frameCbs: Array<(frame: CompleteFrame) => void> = [];
+  const lidarCbs: Array<(scan: LidarScan) => void> = [];
   const reassembler = new FrameReassembler();
+  const lidarReassembler = new LidarReassembler();
 
   // Subscribe to TX notifications so callers get the robot's text replies.
   subs.push(device.monitorCharacteristicForService(
@@ -197,11 +207,13 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
   // found" error on the first callback — flip hasVideo off so the UI can
   // tell the user. Commands still work either way.
   let hasVideo = true;
+  let hasLidar = false;
   const services = await device.services();
   const nus = services.find(s => s.uuid.toLowerCase() === NUS_SERVICE);
   if (nus) {
     const chars = await nus.characteristics();
     hasVideo = chars.some(c => c.uuid.toLowerCase() === NUS_VIDEO_CHAR);
+    hasLidar = chars.some(c => c.uuid.toLowerCase() === NUS_LIDAR_CHAR);
   }
   if (hasVideo) {
     try {
@@ -232,12 +244,42 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
     }
   }
 
+  // Lidar subscription — same pattern as video.
+  if (hasLidar) {
+    try {
+      subs.push(device.monitorCharacteristicForService(
+        NUS_SERVICE,
+        NUS_LIDAR_CHAR,
+        (err, characteristic) => {
+          if (err) {
+            // eslint-disable-next-line no-console
+            console.warn('[ble] lidar monitor error', err.message);
+            return;
+          }
+          const b64 = characteristic?.value;
+          if (!b64) return;
+          const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
+          const scan = lidarReassembler.ingest(bytes);
+          if (scan) {
+            for (const cb of lidarCbs) cb(scan);
+          }
+        },
+      ));
+    } catch (e: any) {
+      hasLidar = false;
+      // eslint-disable-next-line no-console
+      console.warn('[ble] lidar subscribe failed', e?.message);
+    }
+  }
+
   const conn: RobotConnection = {
     device,
     hasVideo,
+    hasLidar,
     disconnect: async () => {
       for (const s of subs) try { s.remove(); } catch {}
       reassembler.reset();
+      lidarReassembler.reset();
       try { await device.cancelConnection(); } catch {}
     },
     send: async (cmd: string) => {
@@ -264,8 +306,18 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
         if (i >= 0) frameCbs.splice(i, 1);
       };
     },
+    onLidarScan: (cb) => {
+      lidarCbs.push(cb);
+      return () => {
+        const i = lidarCbs.indexOf(cb);
+        if (i >= 0) lidarCbs.splice(i, 1);
+      };
+    },
     requestPhoto: async () => {
       await conn.send('PHOTO');
+    },
+    setLidar: async (on) => {
+      await conn.send(on ? 'LIDAR:ON' : 'LIDAR:OFF');
     },
     applyQuality: async (q) => {
       // Resolution change is the heaviest (camera reconfigure on the Pi

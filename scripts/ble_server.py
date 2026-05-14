@@ -33,12 +33,13 @@ Accepted text commands (written to the RX char, newline optional):
   LEFT / A                                  -> 'L'
   RIGHT / D                                 -> 'R'
   STOP / SPACE / X                          -> 'S'
-  STATUS                                    -> serial + camera + stream state
+  STATUS                                    -> serial + camera + stream + lidar state
   PHOTO                                     -> capture + push a single high-res JPEG
   VQ:<n>                                    -> set live JPEG quality (1-95)
   VFPS:<n>                                  -> set live frame rate (1-15)
   VRES:<w>x<h>                              -> reconfigure camera to <w>x<h> (brief gap)
-  VOFF / VON                                -> pause / resume the live stream
+  VOFF / VON                                -> pause / resume the live video stream
+  LIDAR:ON / LIDAR:OFF                      -> start / stop the RPLidar scan loop
 
 A short reply (e.g. `OK: UP`) is pushed back as a TX notification.
 
@@ -59,10 +60,11 @@ import sys
 import threading
 import time
 
-NUS_SERVICE   = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
-NUS_RX_CHAR   = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'   # Write   (phone -> robot)
-NUS_TX_CHAR   = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone)
-NUS_VIDEO_CHAR = '6E400004-B5A3-F393-E0A9-E50E24DCCA9E'  # Notify  (robot -> phone, video)
+NUS_SERVICE    = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E'
+NUS_RX_CHAR    = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'   # Write   (phone -> robot)
+NUS_TX_CHAR    = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone)
+NUS_VIDEO_CHAR = '6E400004-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone, video)
+NUS_LIDAR_CHAR = '6E400005-B5A3-F393-E0A9-E50E24DCCA9E'   # Notify  (robot -> phone, lidar)
 
 # Path our auto-accept BlueZ agent registers under.  Any unused path works;
 # it just needs to be unique and stable for the lifetime of the script.
@@ -616,6 +618,218 @@ class VideoStreamer:
         self._GLib.timeout_add(CHUNK_PACE_MS, push_next)
 
 
+# ============================================================================
+# Lidar
+# ============================================================================
+#
+# We assume a Slamtec RPLidar A1/A2/A3 over USB serial (/dev/ttyUSB0 by
+# default) — the most common hobby 360° lidar.  The `rplidar` Python
+# library does the protocol work.  If the device or library isn't
+# present, every method is a no-op and `available` is False; the rest of
+# the server still works as before.
+
+DEFAULT_LIDAR_PORT = '/dev/ttyUSB0'
+DEFAULT_LIDAR_BAUD = 115200
+
+# Wire format for one lidar scan chunk (must mirror ios-app/src/lib/lidarFrames.ts):
+#
+#   byte 0   SCAN_ID     rolling counter, identifies the 360° scan
+#   byte 1   CHUNK_IDX   0-based index within the scan
+#   byte 2   TOTAL       total chunks for the scan
+#   byte 3   FLAGS       reserved (must be 0)
+#   bytes 4… POINTS      N × 4-byte points
+#       uint16 little-endian: angle in centi-degrees (0..35999)
+#       uint16 little-endian: distance in millimeters (0..65535, 0 = no return)
+#
+# 4 bytes per point × 44 points = 176 bytes payload, +4 byte header = 180 B.
+# A 360-point scan therefore goes out in ceil(360/44) = 9 chunks.
+LIDAR_POINTS_PER_CHUNK = 44
+LIDAR_CHUNK_HEADER_LEN = 4
+
+
+class LidarSource:
+    """Background thread that drives an RPLidar and publishes the latest
+    completed scan via on_scan(points_iterable).
+
+    points: iterable of (angle_deg: float, distance_mm: int) tuples.
+    The thread coalesces RPLidar's stream of partial scans into
+    once-per-revolution full scans; consumers see ~5–10 scans/sec at A1
+    default settings."""
+
+    def __init__(self, port=DEFAULT_LIDAR_PORT, on_scan=None):
+        self._port = port
+        self._on_scan = on_scan or (lambda _pts: None)
+        self._stop = threading.Event()
+        self._thread = None
+        self._lidar = None
+        self._available = False
+        self._reason = ''
+        try:
+            # `rplidar` (Roboticia fork) is the most common pip name.  We
+            # import here so install_deps doesn't have to be present for
+            # --help / camera-only usage.
+            from rplidar import RPLidar  # type: ignore
+            self._RPLidar = RPLidar
+        except ImportError:
+            self._reason = 'rplidar Python package not installed (pip3 install rplidar)'
+            print(f'[ble] {self._reason} — lidar disabled.', file=sys.stderr)
+            return
+        except Exception as e:
+            self._reason = f'rplidar import failed: {e}'
+            print(f'[ble] {self._reason} — lidar disabled.', file=sys.stderr)
+            return
+
+        # Touch-test the device.  If /dev/ttyUSB0 isn't there or we don't
+        # have permission, fail fast with a useful message rather than
+        # hanging on the first iter_scans() call.
+        try:
+            import os
+            if not os.path.exists(self._port):
+                self._reason = f'{self._port} not present — plug the lidar in, or pass --lidar-port'
+                print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+                return
+            if not os.access(self._port, os.R_OK | os.W_OK):
+                self._reason = f'no read/write on {self._port} — add user to dialout group'
+                print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+                return
+            self._available = True
+            print(f'[ble] lidar ready on {self._port}.', file=sys.stderr)
+        except Exception as e:
+            self._reason = f'lidar probe failed: {e}'
+            print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+
+    @property
+    def available(self):
+        return self._available
+
+    @property
+    def reason(self):
+        return self._reason
+
+    def start(self):
+        if not self._available or self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name='ble-lidar')
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._lidar is not None:
+            try: self._lidar.stop()
+            except Exception: pass
+            try: self._lidar.stop_motor()
+            except Exception: pass
+            try: self._lidar.disconnect()
+            except Exception: pass
+            self._lidar = None
+        self._thread = None
+
+    def _run(self):
+        try:
+            self._lidar = self._RPLidar(self._port, baudrate=DEFAULT_LIDAR_BAUD, timeout=3)
+            # iter_scans yields lists of (quality, angle, distance) once
+            # per revolution.  min_len lower = more scans/sec but each
+            # scan is sparser; 100 is a reasonable floor for A1.
+            for scan in self._lidar.iter_scans(max_buf_meas=2000, min_len=100):
+                if self._stop.is_set():
+                    break
+                pts = [(float(angle), int(dist)) for (_q, angle, dist) in scan if dist > 0]
+                try:
+                    self._on_scan(pts)
+                except Exception as e:
+                    print(f'[ble] lidar on_scan callback error: {e}', file=sys.stderr)
+        except Exception as e:
+            print(f'[ble] lidar thread exited: {e}', file=sys.stderr)
+            self._available = False
+            self._reason = str(e)
+        finally:
+            try:
+                if self._lidar is not None:
+                    self._lidar.stop(); self._lidar.stop_motor(); self._lidar.disconnect()
+            except Exception:
+                pass
+            self._lidar = None
+
+
+class LidarStreamer:
+    """Same chunk-on-the-GLib-loop pattern as VideoStreamer, but for lidar
+    scans on their own characteristic.  Drops new scans while the previous
+    one is still flushing (latest-wins) — lidar is best-effort like video."""
+
+    def __init__(self, lidar_char):
+        self._lidar_char = lidar_char
+        self._scan_id = 0
+        self._sending = False
+        self._scans_sent = 0
+        self._scans_dropped = 0
+        from gi.repository import GLib  # type: ignore
+        self._GLib = GLib
+
+    @property
+    def stats(self):
+        return {'sent': self._scans_sent, 'dropped': self._scans_dropped}
+
+    def _next_scan_id(self):
+        sid = self._scan_id
+        self._scan_id = (self._scan_id + 1) & 0xFF
+        return sid
+
+    @staticmethod
+    def _pack_points(points):
+        """Pack [(angle_deg, distance_mm)] into a binary blob using the
+        wire format documented above."""
+        import struct
+        out = bytearray()
+        for ang, dist in points:
+            cdeg = int(round(ang * 100.0)) % 36000
+            if cdeg < 0: cdeg += 36000
+            dmm = max(0, min(65535, int(dist)))
+            out += struct.pack('<HH', cdeg, dmm)
+        return bytes(out)
+
+    def push_scan(self, points):
+        if self._sending:
+            self._scans_dropped += 1
+            return False
+        blob = self._pack_points(points)
+        if not blob:
+            return False
+        total_points = len(blob) // 4
+        # Cap at 255 chunks (header field is 1 byte).  At 44 pts/chunk
+        # that's 11220 points/scan — way more than any RPLidar produces.
+        chunks_needed = (total_points + LIDAR_POINTS_PER_CHUNK - 1) // LIDAR_POINTS_PER_CHUNK
+        if chunks_needed > 255:
+            blob = blob[: 255 * LIDAR_POINTS_PER_CHUNK * 4]
+            chunks_needed = 255
+        scan_id = self._next_scan_id()
+        chunks = []
+        for idx in range(chunks_needed):
+            start = idx * LIDAR_POINTS_PER_CHUNK * 4
+            payload = blob[start: start + LIDAR_POINTS_PER_CHUNK * 4]
+            chunks.append(bytes([scan_id, idx, chunks_needed, 0]) + payload)
+
+        self._sending = True
+        self._scans_sent += 1
+        it = iter(chunks)
+
+        def push_next():
+            chunk = next(it, None)
+            if chunk is None:
+                self._sending = False
+                return False
+            try:
+                self._lidar_char.set_value(list(chunk))
+            except Exception as e:
+                print(f'[ble] lidar set_value failed: {e}', file=sys.stderr)
+                self._sending = False
+                return False
+            return True
+
+        self._GLib.timeout_add(CHUNK_PACE_MS, push_next)
+        return True
+
+
 def main():
     parser = argparse.ArgumentParser(description='BLE -> Arduino command bridge + video stream')
     parser.add_argument('--name', default=DEFAULT_NAME, help='BLE advertised name')
@@ -647,6 +861,14 @@ def main():
     parser.add_argument('--video-height', type=int, default=DEFAULT_VIDEO_SIZE[1])
     parser.add_argument('--photo-width', type=int, default=DEFAULT_PHOTO_SIZE[0])
     parser.add_argument('--photo-height', type=int, default=DEFAULT_PHOTO_SIZE[1])
+    parser.add_argument('--no-lidar', action='store_true',
+                        help='Disable the RPLidar even if the device is present.')
+    parser.add_argument('--lidar-port', default=DEFAULT_LIDAR_PORT,
+                        help=f'Serial port for the RPLidar (default: {DEFAULT_LIDAR_PORT}).')
+    parser.add_argument('--lidar-autostart', action='store_true',
+                        help='Start scanning at boot instead of waiting for the app '
+                             "to send LIDAR:ON.  Useful for SLAM-style use cases where "
+                             "you want a continuous environment map.")
     args = parser.parse_args()
 
     try:
@@ -679,13 +901,15 @@ def main():
         video_quality=DEFAULT_VIDEO_QUALITY,
         photo_quality=DEFAULT_PHOTO_QUALITY,
     ) if not args.no_camera else None)
+    lidar = LidarSource(port=args.lidar_port) if not args.no_lidar else None
 
     robot = peripheral.Peripheral(adapter_addr, local_name=args.name)
     robot.add_service(srv_id=1, uuid=NUS_SERVICE, primary=True)
 
-    # Forward decls; assigned after the TX / VIDEO characteristics are created.
+    # Forward decls; assigned after the TX / VIDEO / LIDAR characteristics are created.
     push_reply = lambda _line: None
     streamer = None
+    lidar_streamer = None
 
     # Forward-declared so handle_command can call it before we instantiate
     # the watchdog further down.  Re-assigned at startup if --watchdog > 0.
@@ -712,6 +936,14 @@ def main():
             if streamer is not None:
                 s = streamer.stats
                 parts.append(f'frames={s["sent"]} dropped={s["dropped"]} photos={s["photos"]}')
+            if lidar and lidar.available:
+                running = lidar._thread is not None
+                parts.append('lidar=' + ('scanning' if running else 'idle'))
+                if lidar_streamer is not None:
+                    ls = lidar_streamer.stats
+                    parts.append(f'scans={ls["sent"]} scans_dropped={ls["dropped"]}')
+            else:
+                parts.append('lidar=off')
             push_reply(' '.join(parts))
             return
         if cmd == 'PHOTO':
@@ -776,6 +1008,19 @@ def main():
             push_reply('OK: VON')
             return
 
+        if cmd == 'LIDAR:ON' or cmd == 'LIDARON':
+            if not lidar or not lidar.available:
+                push_reply(f'ERR: lidar unavailable ({lidar.reason if lidar else "disabled"})')
+                return
+            lidar.start()
+            push_reply('OK: LIDAR=on')
+            return
+        if cmd == 'LIDAR:OFF' or cmd == 'LIDAROFF':
+            if lidar:
+                lidar.stop()
+            push_reply('OK: LIDAR=off')
+            return
+
         byte = COMMAND_MAP.get(cmd)
         if byte is None:
             push_reply('ERR: Unknown command')
@@ -804,10 +1049,14 @@ def main():
     # VIDEO (video + photo chunks out).
     robot.add_characteristic(srv_id=1, chr_id=3, uuid=NUS_VIDEO_CHAR,
                              value=[], notifying=False, flags=['notify'])
+    # LIDAR (binary scan chunks out).
+    robot.add_characteristic(srv_id=1, chr_id=4, uuid=NUS_LIDAR_CHAR,
+                             value=[], notifying=False, flags=['notify'])
 
     # bluezero stores characteristics in registration order.
     tx_char = robot.characteristics[1]
     video_char = robot.characteristics[2]
+    lidar_char = robot.characteristics[3]
 
     def _push_reply(line):
         try:
@@ -830,6 +1079,17 @@ def main():
             print('         which on a headless Pi usually means no agent and pairing will fail.', file=sys.stderr)
 
     streamer = VideoStreamer(video_char)
+
+    # Lidar — wire its background thread into the BLE streamer.  The
+    # on_scan callback runs on the rplidar thread, but push_scan() only
+    # touches its own state and schedules chunks via GLib.timeout_add,
+    # which is thread-safe (GLib serialises the timeouts on the main
+    # loop).  No locking required.
+    lidar_streamer = LidarStreamer(lidar_char)
+    if lidar:
+        lidar._on_scan = lidar_streamer.push_scan  # noqa: SLF001
+        if args.lidar_autostart and lidar.available:
+            lidar.start()
 
     # Periodic video capture, only kicked off after a client connects so we
     # don't burn camera + CPU + battery while nobody's watching.  Driven by
@@ -917,6 +1177,11 @@ def main():
         video_state['connected'] = False
         if watchdog: watchdog.set_connected(False)
         _stop_video()
+        # Spin the lidar down on disconnect so we don't burn the motor +
+        # USB power while nobody is watching.  Re-armed on the next
+        # LIDAR:ON.  Honour --lidar-autostart by leaving it running.
+        if lidar and not args.lidar_autostart:
+            lidar.stop()
 
     if not args.no_disconnect_stop:
         try:
@@ -973,6 +1238,8 @@ def main():
         _stop_video()
         if camera:
             camera.close()
+        if lidar:
+            lidar.stop()
 
 
 if __name__ == '__main__':
