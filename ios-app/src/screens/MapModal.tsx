@@ -49,9 +49,17 @@ export default function MapModal({ visible, conn, connected, onClose }: Props) {
   const [origin, setOrigin] = useState<{ latitude: number; longitude: number } | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [scan, setScan] = useState<LidarScan | null>(null);
-  const [lidarRequested, setLidarRequested] = useState(false);
-  const [lidarReply, setLidarReply] = useState<string | null>(null);
-  const [statusReply, setStatusReply] = useState<string | null>(null);
+  // Discriminated union of the lidar's current state from the Pi's POV.
+  // 'starting' = LIDAR:ON sent, awaiting first scan or an error.
+  // 'scanning' = at least one scan has landed.
+  // 'error'    = the Pi replied with ERR (device missing, perms, etc.).
+  // 'idle'     = no LIDAR:ON in flight (closed map or before-first-open).
+  type LidarStatus =
+    | { kind: 'idle' }
+    | { kind: 'starting' }
+    | { kind: 'scanning' }
+    | { kind: 'error'; reason: string };
+  const [lidarStatus, setLidarStatus] = useState<LidarStatus>({ kind: 'idle' });
   // Heading override: how many degrees clockwise the robot's "forward" is
   // off from map-north. User can spin this to align the scan with what
   // they see physically. Persisted only for the lifetime of the modal —
@@ -91,36 +99,54 @@ export default function MapModal({ visible, conn, connected, onClose }: Props) {
   }, [visible]);
 
   // ─── Lidar lifecycle ───────────────────────────────────────────────────
+  // Tracks the latest reply so the Retry button can re-issue LIDAR:ON
+  // without re-running the whole effect.
+  const sendLidarOn = (c: RobotConnection) => {
+    setLidarStatus({ kind: 'starting' });
+    c.setLidar(true).catch(() => {});
+    c.send('STATUS').catch(() => {});
+  };
+
   useEffect(() => {
     if (!visible || !conn || !conn.hasLidar) return;
     let unsub: (() => void) | null = null;
     let cancelled = false;
 
-    // Listen to TX replies so we can surface ERR: lidar unavailable (…)
-    // verbatim — the Pi includes a useful reason string.
+    // Parse TX replies into a typed status.  The Pi sends either
+    //   "OK: LIDAR=on"
+    //   "OK: LIDAR=off"
+    //   "ERR: lidar unavailable (<reason>)"
+    // The reason string is human-readable and tells the user what to fix
+    // (plug it in, install rplidar, fix permissions, etc.).
     const unsubReply = conn.onReply(line => {
       if (cancelled) return;
-      if (/^OK: LIDAR=/.test(line) || /lidar/i.test(line)) setLidarReply(line);
-      if (/^OK:.*lidar=/.test(line)) setStatusReply(line);
+      if (/^OK: LIDAR=on/i.test(line)) {
+        // Don't downgrade scanning → starting if scans are already coming in.
+        setLidarStatus(prev => prev.kind === 'scanning' ? prev : { kind: 'starting' });
+      } else if (/^OK: LIDAR=off/i.test(line)) {
+        setLidarStatus({ kind: 'idle' });
+      } else if (/^ERR.*lidar/i.test(line)) {
+        // Pull whatever's after the first ':' as the reason.  Fall back
+        // to the whole line if the format ever changes.
+        const m = line.match(/^ERR[:\s-]*(.+)$/i);
+        setLidarStatus({ kind: 'error', reason: m ? m[1].trim() : line });
+      }
     });
 
     unsub = conn.onLidarScan(s => {
       if (cancelled) return;
       setScan(s);
+      setLidarStatus({ kind: 'scanning' });
     });
 
-    // Ask the Pi to start scanning, and request a STATUS so the UI can
-    // tell the user whether the device is actually present.
-    setLidarRequested(true);
-    conn.setLidar(true).catch(() => {});
-    conn.send('STATUS').catch(() => {});
+    sendLidarOn(conn);
 
     return () => {
       cancelled = true;
       if (unsub) unsub();
       unsubReply();
       conn.setLidar(false).catch(() => {});
-      setLidarRequested(false);
+      setLidarStatus({ kind: 'idle' });
     };
   }, [visible, conn]);
 
@@ -246,19 +272,26 @@ export default function MapModal({ visible, conn, connected, onClose }: Props) {
             </MapView>
 
             <View style={styles.overlay} pointerEvents="box-none">
-              <View style={styles.statusPill}>
-                <View style={[
-                  styles.statusDot,
-                  { backgroundColor: scan ? '#22c55e' : (lidarRequested ? '#eab308' : '#64748b') },
-                ]} />
-                <Text style={styles.statusText}>
-                  {!connected ? 'Disconnected'
-                    : scan
-                      ? `${scan.points.length} pts · scan #${scan.scanId}`
-                      : lidarRequested ? 'Starting lidar…'
-                      : 'Idle'}
-                </Text>
-              </View>
+              {(() => {
+                // Build the status pill from the typed state machine.
+                let dot = '#64748b';
+                let label = 'Idle';
+                if (!connected) {
+                  dot = '#ef4444'; label = 'Disconnected';
+                } else if (lidarStatus.kind === 'scanning' && scan) {
+                  dot = '#22c55e'; label = `${scan.points.length} pts · scan #${scan.scanId}`;
+                } else if (lidarStatus.kind === 'starting') {
+                  dot = '#eab308'; label = 'Starting lidar…';
+                } else if (lidarStatus.kind === 'error') {
+                  dot = '#ef4444'; label = 'Lidar unavailable';
+                }
+                return (
+                  <View style={styles.statusPill}>
+                    <View style={[styles.statusDot, { backgroundColor: dot }]} />
+                    <Text style={styles.statusText}>{label}</Text>
+                  </View>
+                );
+              })()}
 
               <View style={styles.toolbar}>
                 <TouchableOpacity style={styles.toolBtn} onPress={recenter} activeOpacity={0.85}>
@@ -274,10 +307,25 @@ export default function MapModal({ visible, conn, connected, onClose }: Props) {
                 </TouchableOpacity>
               </View>
 
-              {lidarReply && /^ERR/.test(lidarReply) && (
-                <View style={styles.errorPill}>
-                  <Ionicons name="alert-circle" size={16} color="#fbbf24" />
-                  <Text style={styles.errorPillText}>{lidarReply}</Text>
+              {lidarStatus.kind === 'error' && (
+                <View style={styles.errorBanner} pointerEvents="auto">
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="warning" size={20} color="#fbbf24" />
+                    <Text style={styles.errorBannerTitle}>Lidar unavailable</Text>
+                  </View>
+                  <Text style={styles.errorBannerReason}>{lidarStatus.reason}</Text>
+                  <Text style={styles.errorBannerHint}>
+                    Plug the RPLidar in (USB) and tap Retry. The Pi will re-probe
+                    the device — no need to restart the bridge.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.errorBannerBtn}
+                    onPress={() => conn && sendLidarOn(conn)}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="refresh" size={16} color="#451a03" />
+                    <Text style={styles.errorBannerBtnText}>Retry</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -323,13 +371,21 @@ const styles = StyleSheet.create({
   },
   toolBtnText: { color: '#0f172a', fontWeight: '700', fontSize: 12 },
 
-  errorPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+  errorBanner: {
+    alignSelf: 'stretch',
     backgroundColor: '#451a03', borderColor: '#92400e', borderWidth: 1,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12,
-    alignSelf: 'flex-start',
+    padding: 14, borderRadius: 14, gap: 6,
+    shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
-  errorPillText: { color: '#fde68a', fontSize: 12, flexShrink: 1 },
+  errorBannerTitle: { color: '#fde68a', fontWeight: '700', fontSize: 15 },
+  errorBannerReason: { color: '#fcd34d', fontSize: 13, lineHeight: 18 },
+  errorBannerHint:   { color: '#fbbf24', fontSize: 12, lineHeight: 17, marginTop: 2 },
+  errorBannerBtn: {
+    alignSelf: 'flex-start', marginTop: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fbbf24', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8,
+  },
+  errorBannerBtnText: { color: '#451a03', fontWeight: '700', fontSize: 13 },
 
   robotMarker: {
     width: 22, height: 22, borderRadius: 11,

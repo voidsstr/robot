@@ -679,6 +679,9 @@ class LidarSource:
         self._lidar = None
         self._available = False
         self._reason = ''
+        self._RPLidar = None
+        self._fatal = False    # True once a permanent failure (e.g. lib missing) makes re-probing pointless
+
         try:
             # `rplidar` (Roboticia fork) is the most common pip name.  We
             # import here so install_deps doesn't have to be present for
@@ -687,31 +690,59 @@ class LidarSource:
             self._RPLidar = RPLidar
         except ImportError:
             self._reason = 'rplidar Python package not installed (pip3 install rplidar)'
+            self._fatal = True
             print(f'[ble] {self._reason} — lidar disabled.', file=sys.stderr)
             return
         except Exception as e:
             self._reason = f'rplidar import failed: {e}'
+            self._fatal = True
             print(f'[ble] {self._reason} — lidar disabled.', file=sys.stderr)
             return
 
-        # Touch-test the device.  If /dev/ttyUSB0 isn't there or we don't
-        # have permission, fail fast with a useful message rather than
-        # hanging on the first iter_scans() call.
+        # First probe.  Failures here aren't fatal — the device could be
+        # plugged in later and a subsequent LIDAR:ON will call reprobe().
+        self.reprobe(quiet=False)
+
+    def reprobe(self, quiet=True):
+        """Re-check whether the lidar device is plug-in-able right now.
+        Idempotent and safe to call repeatedly.  Returns the new value of
+        `available`.  Skipped if we hit a fatal error (missing library) —
+        that won't fix itself without restarting the process.
+
+        quiet=True suppresses success/failure prints; we keep the very
+        first probe loud so startup logs show the lidar state."""
+        if self._fatal:
+            return False
+        # If we're already scanning, the device is plainly there — no need
+        # to redo the touch test, which would race with the rplidar lib.
+        if self._available and self._thread is not None:
+            return True
         try:
             import os
             if not os.path.exists(self._port):
+                self._available = False
                 self._reason = f'{self._port} not present — plug the lidar in, or pass --lidar-port'
-                print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
-                return
+                if not quiet:
+                    print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+                return False
             if not os.access(self._port, os.R_OK | os.W_OK):
+                self._available = False
                 self._reason = f'no read/write on {self._port} — add user to dialout group'
-                print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
-                return
+                if not quiet:
+                    print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+                return False
+            # Recovered from a previous "not plugged in"?  Announce it.
+            if not self._available:
+                print(f'[ble] lidar ready on {self._port}.', file=sys.stderr)
             self._available = True
-            print(f'[ble] lidar ready on {self._port}.', file=sys.stderr)
+            self._reason = ''
+            return True
         except Exception as e:
+            self._available = False
             self._reason = f'lidar probe failed: {e}'
-            print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+            if not quiet:
+                print(f'[ble] {self._reason}; lidar disabled.', file=sys.stderr)
+            return False
 
     @property
     def available(self):
@@ -722,6 +753,9 @@ class LidarSource:
         return self._reason
 
     def start(self):
+        # Always re-probe before starting so we pick up a device that
+        # was plugged in after ble_server.py launched.
+        self.reprobe()
         if not self._available or self._thread is not None:
             return
         self._stop.clear()
@@ -1024,8 +1058,13 @@ def main():
             return
 
         if cmd == 'LIDAR:ON' or cmd == 'LIDARON':
-            if not lidar or not lidar.available:
-                push_reply(f'ERR: lidar unavailable ({lidar.reason if lidar else "disabled"})')
+            if not lidar:
+                push_reply('ERR: lidar unavailable (disabled with --no-lidar)')
+                return
+            # Re-probe in case the user just plugged the device in.
+            lidar.reprobe()
+            if not lidar.available:
+                push_reply(f'ERR: lidar unavailable ({lidar.reason})')
                 return
             lidar.start()
             push_reply('OK: LIDAR=on')
