@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "build:ios": "bash scripts/build-and-submit.sh",
-    "submit:ios": "eas submit --platform ios --latest --non-interactive"
+    "submit:ios": "eas submit --platform ios --latest --non-interactive",
+    "ota:production": "npx --yes eas-cli@latest update --branch production --auto",
+    "ota:preview": "npx --yes eas-cli@latest update --branch preview --auto"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

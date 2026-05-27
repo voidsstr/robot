@@ -9,6 +9,15 @@
 # Robot Control app lives in the same Apple Developer team (ZYH6M3S4ZF)
 # and the .p8 key is team-scoped, not app-scoped.
 #
+# OTA (expo-updates) flow:
+#   This binary build is what TestFlight installs. Once a tester is on the
+#   new build, JS-only changes can be shipped instantly via:
+#     npm run ota:production    # eas update --branch production --auto
+#   Native changes (new modules, plugin changes, version bump) still
+#   require a fresh binary via this script. The runtimeVersion policy
+#   in app.json is "appVersion", so OTA is only delivered to builds with
+#   the same expo.version — bump expo.version when shipping native deltas.
+#
 # Usage:
 #   bash scripts/build-and-submit.sh        # build + auto-submit
 #   bash scripts/build-and-submit.sh build  # build only
