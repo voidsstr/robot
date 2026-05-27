@@ -38,7 +38,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform, Alert,
   Image, Modal, ActivityIndicator, ScrollView, TextInput,
-  AppState, AppStateStatus, Linking,
+  AppState, AppStateStatus, Linking, PanResponder, GestureResponderEvent,
+  PanResponderGestureState,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -51,6 +52,7 @@ import {
 import {
   QualityPreset, PRESETS, getQualityPreset, setQualityPreset, settingsFor, DEFAULT_PRESET,
 } from '../lib/videoQuality';
+import { ControlMode, getControlMode, setControlMode, DEFAULT_MODE } from '../lib/controlMode';
 import MapModal from './MapModal';
 import { LAST_ROBOT_KEY } from './ScanScreen';
 
@@ -124,10 +126,12 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
   // the Pi sees a sensor at all.
   const [cameraInfo, setCameraInfo] = useState<string>('');
   const [cameraPort, setCameraPort] = useState<number | null>(null);
+  const [mode, setMode] = useState<ControlMode>(DEFAULT_MODE);
 
   useEffect(() => {
     getApiKey().then(k => setHasApiKey(!!k));
     getQualityPreset().then(setQuality);
+    getControlMode().then(setMode);
   }, [showSettings]);
 
   // Send CAM:<n> to the Pi to switch which CSI port libcamera opens.
@@ -150,6 +154,21 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
     if (!conn) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try { await conn.requestCameraInfo(); } catch {}
+  };
+
+  // Flip d-pad ↔ joystick. Persist so the next launch remembers. Pressing
+  // mid-drive cancels any in-flight repeat (and STOPs) so the robot doesn't
+  // keep ramping in whatever direction was held when the mode changed.
+  const toggleMode = async () => {
+    if (repeatTimerRef.current) {
+      clearInterval(repeatTimerRef.current);
+      repeatTimerRef.current = null;
+    }
+    setActiveKey(null);
+    send('STOP');
+    const next: ControlMode = mode === 'dpad' ? 'joystick' : 'dpad';
+    setMode(next);
+    await setControlMode(next);
   };
 
   // Apply a quality preset: persist it, push it to the Pi if connected.
@@ -496,6 +515,13 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
             color={status === 'connected' ? '#38bdf8' : '#475569'}
           />
         </TouchableOpacity>
+        <TouchableOpacity onPress={toggleMode} style={styles.headerIcon}>
+          <Ionicons
+            name={mode === 'dpad' ? 'game-controller-outline' : 'apps-outline'}
+            size={26}
+            color="#94a3b8"
+          />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerIcon}>
           <Ionicons name="settings-outline" size={26} color="#94a3b8" />
         </TouchableOpacity>
@@ -570,28 +596,48 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
       </View>
 
       <View style={styles.padWrap}>
-        <View style={styles.padRow}>
-          <View style={styles.padSpacer} />
-          <PadButton cmd="UP" icon="arrow-up" />
-          <View style={styles.padSpacer} />
-        </View>
-        <View style={styles.padRow}>
-          <PadButton cmd="LEFT" icon="arrow-back" />
-          <TouchableOpacity
-            style={styles.stopBtn}
-            onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); send('STOP'); }}
-            disabled={status !== 'connected'}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.stopText}>STOP</Text>
-          </TouchableOpacity>
-          <PadButton cmd="RIGHT" icon="arrow-forward" />
-        </View>
-        <View style={styles.padRow}>
-          <View style={styles.padSpacer} />
-          <PadButton cmd="DOWN" icon="arrow-down" />
-          <View style={styles.padSpacer} />
-        </View>
+        {mode === 'dpad' ? (
+          <>
+            <View style={styles.padRow}>
+              <View style={styles.padSpacer} />
+              <PadButton cmd="UP" icon="arrow-up" />
+              <View style={styles.padSpacer} />
+            </View>
+            <View style={styles.padRow}>
+              <PadButton cmd="LEFT" icon="arrow-back" />
+              <TouchableOpacity
+                style={styles.stopBtn}
+                onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); send('STOP'); }}
+                disabled={status !== 'connected'}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.stopText}>STOP</Text>
+              </TouchableOpacity>
+              <PadButton cmd="RIGHT" icon="arrow-forward" />
+            </View>
+            <View style={styles.padRow}>
+              <View style={styles.padSpacer} />
+              <PadButton cmd="DOWN" icon="arrow-down" />
+              <View style={styles.padSpacer} />
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.padRow}>
+              <Joystick disabled={status !== 'connected'} onCommand={send} />
+            </View>
+            <View style={styles.padRow}>
+              <TouchableOpacity
+                style={styles.stopBtn}
+                onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); send('STOP'); }}
+                disabled={status !== 'connected'}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.stopText}>STOP</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={styles.replyBox}>

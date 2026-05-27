@@ -269,6 +269,27 @@ sudo systemctl daemon-reload && sudo systemctl enable --now robot-ble
 
 Then pair from the phone — see the next section.
 
+### 3c. Drive from any browser (live camera + arrow keys)
+
+`scripts/web_drive.py` serves a webpage with a live MJPEG stream from
+the IMX519 and arrow-key handlers that forward commands to the WiFi
+listener. Open it on a laptop or phone on the same LAN — no app, no
+terminal, no Bluetooth.
+
+```bash
+# On the Pi, with bin/robot wifi-server already running:
+sudo systemctl stop robot-ble      # robot-ble owns the camera; free it first
+python3 scripts/web_drive.py       # serves on http://<pi-ip>:8090/
+```
+
+Then open `http://<pi-ip>:8090/` in any browser. Hold ↑ ↓ ← → (or
+W/A/S/D); release to stop. Space = emergency stop. A 3-button on-screen
+D-pad is also there for touch devices.
+
+Flags: `--port` (HTTP port, default 8090), `--cmd-host`/`--cmd-port`
+(WiFi-server location, defaults to 127.0.0.1:8080), `--camera-fps`,
+`--camera-width`/`--camera-height`, `--camera-quality`, `--no-camera`.
+
 ## Wire Protocol (TCP)
 
 ASCII, newline-terminated. Case-insensitive.
