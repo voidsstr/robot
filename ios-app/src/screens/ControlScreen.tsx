@@ -118,11 +118,39 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
   const [showMap, setShowMap] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [quality, setQuality] = useState<QualityPreset>(DEFAULT_PRESET);
+  // Camera diagnostics — populated from CAMINFO replies and CAM:<n> acks
+  // that the Pi sends back on the TX channel.  Surfaced in the Settings
+  // modal so the user can see which port is currently active and whether
+  // the Pi sees a sensor at all.
+  const [cameraInfo, setCameraInfo] = useState<string>('');
+  const [cameraPort, setCameraPort] = useState<number | null>(null);
 
   useEffect(() => {
     getApiKey().then(k => setHasApiKey(!!k));
     getQualityPreset().then(setQuality);
   }, [showSettings]);
+
+  // Send CAM:<n> to the Pi to switch which CSI port libcamera opens.
+  // Briefly interrupts the live stream while picamera2 re-opens — clear
+  // the staleness clock so we don't false-alarm during the swap.
+  const changeCameraPort = async (n: number) => {
+    const conn = connRef.current;
+    if (!conn) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    try { await conn.setCameraPort(n); } catch {}
+    lastFrameAtRef.current = Date.now();
+    setVideoStale(false);
+  };
+
+  // Ask the Pi for the list of detected cameras + active port.  The
+  // reply lands on the TX channel and is parsed by the onReply handler
+  // above, which writes into cameraInfo/cameraPort.
+  const fetchCameraInfo = async () => {
+    const conn = connRef.current;
+    if (!conn) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    try { await conn.requestCameraInfo(); } catch {}
+  };
 
   // Apply a quality preset: persist it, push it to the Pi if connected.
   const changeQuality = async (p: QualityPreset) => {
@@ -189,7 +217,22 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
         setHasVideoChar(conn.hasVideo);
         lastFrameAtRef.current = Date.now();
         setVideoStale(false);
-        conn.onReply((line) => setLastReply(line));
+        conn.onReply((line) => {
+          setLastReply(line);
+          // Pick out camera diagnostics so the Settings modal can show
+          // "Active port: 0, 2 cameras detected, …" without forcing the
+          // user to read the raw reply line.
+          const camInfoMatch = line.match(/^OK:\s*CAMINFO\s+(.+)$/i);
+          if (camInfoMatch) {
+            setCameraInfo(camInfoMatch[1]);
+            const active = camInfoMatch[1].match(/active=(\d+)/i);
+            if (active) setCameraPort(parseInt(active[1], 10));
+            else if (/active=default/i.test(camInfoMatch[1])) setCameraPort(null);
+            return;
+          }
+          const camAckMatch = line.match(/^OK:\s*CAM=(\d+)/i);
+          if (camAckMatch) setCameraPort(parseInt(camAckMatch[1], 10));
+        });
         conn.onFrame((frame: CompleteFrame) => {
           // Record the moment of arrival so the staleness watchdog can
           // tell live video from a frozen last frame.
@@ -567,6 +610,11 @@ export default function ControlScreen({ deviceId, deviceName, onDisconnected }: 
         hasApiKey={hasApiKey}
         quality={quality}
         onChangeQuality={changeQuality}
+        connected={status === 'connected'}
+        cameraPort={cameraPort}
+        cameraInfo={cameraInfo}
+        onChangeCameraPort={changeCameraPort}
+        onFetchCameraInfo={fetchCameraInfo}
         onClose={() => setShowSettings(false)}
       />
 
@@ -742,12 +790,19 @@ function HealthReport({ score, summary }: { score: number | null; summary: strin
 }
 
 function SettingsModal({
-  visible, hasApiKey, quality, onChangeQuality, onClose,
+  visible, hasApiKey, quality, onChangeQuality,
+  connected, cameraPort, cameraInfo, onChangeCameraPort, onFetchCameraInfo,
+  onClose,
 }: {
   visible: boolean;
   hasApiKey: boolean;
   quality: QualityPreset;
   onChangeQuality: (p: QualityPreset) => void;
+  connected: boolean;
+  cameraPort: number | null;
+  cameraInfo: string;
+  onChangeCameraPort: (n: number) => void;
+  onFetchCameraInfo: () => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState('');
@@ -809,6 +864,56 @@ function SettingsModal({
               <Text style={[styles.settingsHint, { marginTop: -4 }]}>
                 {PRESETS[quality].hint}
               </Text>
+
+              <View style={styles.settingsDivider} />
+
+              <Text style={styles.settingsLabel}>Camera port</Text>
+              <Text style={styles.settingsHint}>
+                The Pi 5 has two CSI camera ports. If video is black or the
+                Pi reports the camera as off, the ribbon may be in the
+                other port — toggle here to switch live.
+              </Text>
+              <View style={styles.qualityRow}>
+                {[0, 1].map(n => {
+                  const active = cameraPort === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      style={[
+                        styles.qualityBtn,
+                        active && styles.qualityBtnActive,
+                        !connected && { opacity: 0.4 },
+                      ]}
+                      onPress={() => onChangeCameraPort(n)}
+                      disabled={!connected}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.qualityLabel, active && styles.qualityLabelActive]}>
+                        Port {n}
+                      </Text>
+                      <Text style={styles.qualityMeta}>
+                        {active ? 'active' : 'CAM:' + n}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[styles.qualityBtn, !connected && { opacity: 0.4 }]}
+                  onPress={onFetchCameraInfo}
+                  disabled={!connected}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.qualityLabel}>Info</Text>
+                  <Text style={styles.qualityMeta}>CAMINFO</Text>
+                </TouchableOpacity>
+              </View>
+              {cameraInfo ? (
+                <Text style={styles.cameraInfoText}>{cameraInfo}</Text>
+              ) : (
+                <Text style={styles.settingsHint}>
+                  Press <Text style={{ color: '#cbd5e1' }}>Info</Text> to ask the Pi which sensors libcamera can see.
+                </Text>
+              )}
 
               <View style={styles.settingsDivider} />
 
@@ -951,6 +1056,14 @@ const styles = StyleSheet.create({
   qualityLabelActive: { color: '#38bdf8' },
   qualityMeta: { color: '#64748b', fontSize: 11, marginTop: 3 },
   settingsDivider: { height: 1, backgroundColor: '#1e293b', alignSelf: 'stretch', marginVertical: 8 },
+  cameraInfoText: {
+    alignSelf: 'stretch',
+    color: '#86efac', fontSize: 11, lineHeight: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: '#020617',
+    borderWidth: 1, borderColor: '#1e293b',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+  },
 
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,

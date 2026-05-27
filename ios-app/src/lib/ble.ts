@@ -162,6 +162,15 @@ export interface RobotConnection {
   /** Start/stop the RPLidar's continuous scan.  The Pi replies with
    *  OK: LIDAR=on / OK: LIDAR=off, or ERR: lidar unavailable (…). */
   setLidar: (on: boolean) => Promise<void>;
+  /** Switch which CSI camera port libcamera opens on the Pi.  Pi 5 has
+   *  two ports (0 / 1); the Pi replies with OK: CAM=<n> or ERR: CAM:<n>
+   *  (…) on the TX channel.  Briefly interrupts the live stream (~1 s)
+   *  while picamera2 re-opens against the new sensor. */
+  setCameraPort: (n: number) => Promise<void>;
+  /** Ask the Pi to dump the list of detected cameras + active port.
+   *  Reply lands on the TX channel as a single line starting with
+   *  "OK: CAMINFO detected=<n> active=<n|default> #<num>:<model>@loc<loc> …". */
+  requestCameraInfo: () => Promise<void>;
 }
 
 export async function connect(deviceId: string): Promise<RobotConnection> {
@@ -329,6 +338,12 @@ export async function connect(deviceId: string): Promise<RobotConnection> {
     },
     setStreaming: async (on) => {
       await conn.send(on ? 'VON' : 'VOFF');
+    },
+    setCameraPort: async (n) => {
+      await conn.send(`CAM:${Math.max(0, Math.floor(n))}`);
+    },
+    requestCameraInfo: async () => {
+      await conn.send('CAMINFO');
     },
   };
   return conn;

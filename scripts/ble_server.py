@@ -39,6 +39,8 @@ Accepted text commands (written to the RX char, newline optional):
   VFPS:<n>                                  -> set live frame rate (1-15)
   VRES:<w>x<h>                              -> reconfigure camera to <w>x<h> (brief gap)
   VOFF / VON                                -> pause / resume the live video stream
+  CAM:<n>                                   -> switch to camera port <n> (Pi 5: 0 or 1)
+  CAMINFO                                   -> reply with all detected cameras
   LIDAR:ON / LIDAR:OFF                      -> start / stop the RPLidar scan loop
 
 A short reply (e.g. `OK: UP`) is pushed back as a TX notification.
@@ -404,38 +406,79 @@ class CameraSource:
     Designed for the Arducam IMX519 attached via the CSI ribbon, but works
     with any libcamera-supported sensor (the Pi camera v2/v3 too).
 
+    On the Pi 5 there are two CSI camera ports (CAM0 / CAM1).  libcamera
+    enumerates them as separate camera devices; we pick which one
+    Picamera2 opens with `camera_num`.  None = let picamera2 use its
+    default (typically the lowest-numbered detected camera).  At init we
+    log the full Picamera2.global_camera_info() dump to stderr so it's
+    obvious which port the connected sensor came up on — useful when you
+    plug the ribbon into the wrong port and nothing appears.
+
     Video quality, fps target, and resolution can all be changed at
     runtime via set_*().  Quality and fps are cheap (next frame picks up
     the new value); resolution requires a stop/configure/start cycle that
-    takes ~1 second."""
+    takes ~1 second.  Camera port is the same — set_camera_num() bounces
+    the stream and re-opens against the new sensor."""
 
-    def __init__(self, video_size, photo_size, video_quality, photo_quality):
+    def __init__(self, video_size, photo_size, video_quality, photo_quality,
+                 camera_num=None):
         self._picam = None
         self._video_size = tuple(video_size)
         self._photo_size = tuple(photo_size)
         self._video_quality = int(video_quality)
         self._photo_quality = int(photo_quality)
+        self._camera_num = None if camera_num is None else int(camera_num)
+        self._last_error = ''
+        self._cameras = []
         self._capture_lock = threading.Lock()
 
         try:
             from picamera2 import Picamera2  # type: ignore
         except ImportError:
+            self._last_error = 'picamera2 not installed (sudo apt-get install python3-picamera2)'
             print('[ble] picamera2 not installed — video + photo disabled.', file=sys.stderr)
             print('      Install: sudo apt-get install python3-picamera2', file=sys.stderr)
             return
         except Exception as e:
+            self._last_error = f'picamera2 import failed: {e}'
             print(f'[ble] picamera2 import failed ({e}); video + photo disabled.', file=sys.stderr)
             return
 
         self._Picamera2 = Picamera2
+
+        # Verbose enumeration up front — every field libcamera knows about
+        # each detected sensor goes to stderr.  This is the single biggest
+        # debug lever: if the ribbon's on the wrong port, the dict for
+        # that port is simply missing here, regardless of dtoverlay.
+        try:
+            cams = Picamera2.global_camera_info()
+            self._cameras = list(cams) if cams else []
+            if not self._cameras:
+                print('[ble] CAMERA SCAN: libcamera reports ZERO cameras attached.', file=sys.stderr)
+                print('      Pi 5 has two CSI ports (CAM0/CAM1).  Check:', file=sys.stderr)
+                print('        - ribbon fully seated on BOTH ends, blue tab toward USB', file=sys.stderr)
+                print('        - dtoverlay=imx519 (or your sensor) in /boot/firmware/config.txt', file=sys.stderr)
+                print('        - `rpicam-hello --list-cameras` agrees', file=sys.stderr)
+            else:
+                print(f'[ble] CAMERA SCAN: {len(self._cameras)} camera(s) detected by libcamera:',
+                      file=sys.stderr)
+                for i, info in enumerate(self._cameras):
+                    print(f'  [{i}] {info}', file=sys.stderr)
+        except Exception as e:
+            print(f'[ble] CAMERA SCAN failed: {e}', file=sys.stderr)
+            self._cameras = []
+
         try:
             self._open_locked()
-            print(f'[ble] camera ready at {self._video_size} (video) / {self._photo_size} (photo).',
+            print(f'[ble] camera ready on port {self._camera_num if self._camera_num is not None else "(default)"} '
+                  f'at {self._video_size} (video) / {self._photo_size} (photo).',
                   file=sys.stderr)
         except Exception as e:
+            self._last_error = f'open failed: {e}'
             print(f'[ble] camera init failed ({e}); video + photo disabled.', file=sys.stderr)
             print('      Check: rpicam-hello works? dtoverlay=imx519 in /boot/firmware/config.txt?',
                   file=sys.stderr)
+            print('      Try toggling ports from the app (CAM:0 / CAM:1).', file=sys.stderr)
             self._picam = None
 
     def _open_locked(self):
@@ -446,16 +489,31 @@ class CameraSource:
             try: self._picam.close()
             except Exception: pass
             self._picam = None
-        picam = self._Picamera2()
+        if self._camera_num is None:
+            picam = self._Picamera2()
+        else:
+            picam = self._Picamera2(camera_num=self._camera_num)
         cfg = picam.create_video_configuration(main={'size': self._video_size, 'format': 'RGB888'})
         picam.configure(cfg)
         picam.start()
         time.sleep(1.5)  # let AE/AWB settle before the first frame goes out
         self._picam = picam
+        self._last_error = ''
 
     @property
     def available(self):
         return self._picam is not None
+
+    @property
+    def last_error(self):
+        return self._last_error
+
+    @property
+    def cameras(self):
+        """List of dicts as returned by Picamera2.global_camera_info() at
+        construction time.  Each dict has at least 'Model' and 'Num'
+        keys; on Pi 5 also 'Location' (which CSI port: 0 / 1)."""
+        return list(self._cameras)
 
     @property
     def state(self):
@@ -465,6 +523,9 @@ class CameraSource:
             'photo_size': self._photo_size,
             'video_quality': self._video_quality,
             'photo_quality': self._photo_quality,
+            'camera_num': self._camera_num,
+            'detected': len(self._cameras),
+            'last_error': self._last_error,
         }
 
     def set_video_quality(self, q):
@@ -487,6 +548,51 @@ class CameraSource:
                 print(f'[ble] camera reconfigure to {w}x{h} failed: {e}', file=sys.stderr)
                 self._picam = None
         return self._video_size
+
+    def set_camera_num(self, n):
+        """Switch which CSI port libcamera opens.  Bounces the stream:
+        stops the current sensor, opens the new one, and restarts the
+        configured video pipeline.  Re-raises on failure so the BLE layer
+        can report ERR back to the app and the user knows the toggle
+        didn't take.  On success the new port is sticky for subsequent
+        capture / reconfigure calls.
+
+        Re-scans global_camera_info() each time — that's how a freshly
+        plugged-in sensor on the other port becomes visible without
+        restarting the whole BLE bridge."""
+        n = int(n)
+        with self._capture_lock:
+            # Refresh the enumeration first so the new port is picked up
+            # even if it was empty at startup.
+            try:
+                cams = self._Picamera2.global_camera_info()
+                self._cameras = list(cams) if cams else []
+                print(f'[ble] CAMERA RESCAN before switching to port {n}: {len(self._cameras)} detected:',
+                      file=sys.stderr)
+                for i, info in enumerate(self._cameras):
+                    print(f'  [{i}] {info}', file=sys.stderr)
+            except Exception as e:
+                print(f'[ble] camera rescan failed: {e}', file=sys.stderr)
+
+            prev = self._camera_num
+            self._camera_num = n
+            try:
+                self._open_locked()
+                print(f'[ble] switched to camera port {n}.', file=sys.stderr)
+                return n
+            except Exception as e:
+                # Roll back so we don't leave _camera_num pointing at a
+                # port we couldn't open.  The previous port may or may
+                # not still be available; try to restore.
+                self._last_error = f'CAM:{n} open failed: {e}'
+                print(f'[ble] camera port {n} failed ({e}); rolling back to {prev}.', file=sys.stderr)
+                self._camera_num = prev
+                try:
+                    self._open_locked()
+                except Exception as e2:
+                    print(f'[ble] rollback also failed ({e2}); camera offline.', file=sys.stderr)
+                    self._picam = None
+                raise
 
     def capture_video_jpeg(self):
         """Capture one low-res frame and return JPEG bytes (or None)."""
@@ -905,6 +1011,9 @@ def main():
                              "exit (non-zero) when the adapter goes down so systemd can "
                              "restart us fresh.")
     parser.add_argument('--no-camera', action='store_true', help='Disable video/photo (commands only)')
+    parser.add_argument('--camera-num', type=int, default=None,
+                        help='Which CSI port to open at startup (Pi 5: 0 or 1).  Omit to let '
+                             'libcamera pick the default.  The app can also switch live with CAM:n.')
     parser.add_argument('--video-fps', type=int, default=DEFAULT_VIDEO_FPS, help='Live video frame rate')
     parser.add_argument('--video-width', type=int, default=DEFAULT_VIDEO_SIZE[0])
     parser.add_argument('--video-height', type=int, default=DEFAULT_VIDEO_SIZE[1])
@@ -949,6 +1058,7 @@ def main():
         photo_size=(args.photo_width, args.photo_height),
         video_quality=DEFAULT_VIDEO_QUALITY,
         photo_quality=DEFAULT_PHOTO_QUALITY,
+        camera_num=args.camera_num,
     ) if not args.no_camera else None)
     lidar = LidarSource(port=args.lidar_port) if not args.no_lidar else None
 
@@ -979,9 +1089,12 @@ def main():
             parts.append('serial=' + ('open' if link.is_open() else 'closed'))
             if camera and camera.available:
                 st = camera.state
-                parts.append(f'camera=on res={st["video_size"][0]}x{st["video_size"][1]} q={st["video_quality"]}')
+                port = st['camera_num'] if st['camera_num'] is not None else 'default'
+                parts.append(f'camera=on port={port} detected={st["detected"]} '
+                             f'res={st["video_size"][0]}x{st["video_size"][1]} q={st["video_quality"]}')
             else:
-                parts.append('camera=off')
+                err = (camera.last_error if camera else 'disabled')
+                parts.append(f'camera=off ({err})')
             if streamer is not None:
                 s = streamer.stats
                 parts.append(f'frames={s["sent"]} dropped={s["dropped"]} photos={s["photos"]}')
@@ -1055,6 +1168,51 @@ def main():
         if cmd == 'VON':
             resume_video()
             push_reply('OK: VON')
+            return
+        if cmd.startswith('CAM:'):
+            if not camera:
+                push_reply('ERR: camera disabled with --no-camera')
+                return
+            try:
+                n = int(cmd[4:])
+            except Exception:
+                push_reply('ERR: bad CAM (expected CAM:0 or CAM:1)')
+                return
+            # Bouncing the camera takes ~1 s and the live timer keeps
+            # firing during the swap.  Stop it first so we don't capture
+            # against a half-torn-down sensor.
+            was_running = video_state['timer_id'] is not None
+            if was_running:
+                _stop_video()
+            try:
+                actual = camera.set_camera_num(n)
+                push_reply(f'OK: CAM={actual}')
+            except Exception as e:
+                push_reply(f'ERR: CAM:{n} ({e})')
+            finally:
+                if was_running and camera.available:
+                    _start_video()
+            return
+        if cmd == 'CAMINFO':
+            if not camera:
+                push_reply('ERR: camera disabled with --no-camera')
+                return
+            cams = camera.cameras
+            st = camera.state
+            cur = st['camera_num'] if st['camera_num'] is not None else 'default'
+            if not cams:
+                push_reply(f'OK: CAMINFO detected=0 active={cur} '
+                           f'err="{camera.last_error or "no cameras detected by libcamera"}"')
+                return
+            # Compact summary: just model + location + num per camera so
+            # the line fits within a couple of BLE notifications.
+            summaries = []
+            for info in cams:
+                model = info.get('Model', '?')
+                num = info.get('Num', '?')
+                loc = info.get('Location', '?')
+                summaries.append(f'#{num}:{model}@loc{loc}')
+            push_reply(f'OK: CAMINFO detected={len(cams)} active={cur} ' + ' '.join(summaries))
             return
 
         if cmd == 'LIDAR:ON' or cmd == 'LIDARON':

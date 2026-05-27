@@ -45,6 +45,21 @@ except Exception as e:
     sys.exit(f'Could not import CameraSource/LidarSource from ble_server.py: {e}\n'
              'Make sure scripts/ble_server.py is present and unmodified.')
 
+# Grass-health helpers live in lawn_camera.py — same scripts/ directory, so
+# the import is cheap.  We tolerate the file or its deps being missing
+# (PIL / anthropic SDK) so the GUI still works for camera + map without
+# the lawn-check button.
+try:
+    from lawn_camera import encode_for_api as _lawn_encode  # type: ignore
+    from lawn_camera import assess_lawn as _lawn_assess    # type: ignore
+    _LAWN_AVAILABLE = True
+    _LAWN_IMPORT_ERROR = ''
+except Exception as e:
+    _lawn_encode = None
+    _lawn_assess = None
+    _LAWN_AVAILABLE = False
+    _LAWN_IMPORT_ERROR = str(e)
+
 
 # We treat lidar returns shorter than this as the chassis / specular
 # noise, and longer than this as out of the A1's useful range.
@@ -65,15 +80,17 @@ class CameraWindow:
     thread, which is fast at our 5 fps target."""
 
     def __init__(self, root: tk.Tk, camera: CameraSource | None, fps: int = 5):
+        self._root = root
         self._camera = camera
         self._fps = max(1, min(15, int(fps)))
         self._stop = threading.Event()
         self._queue: queue.Queue = queue.Queue(maxsize=1)
+        self._lawn_busy = False
 
         self.top = tk.Toplevel(root)
         self.top.title('Robot Camera')
         self.top.configure(bg='#0f172a')
-        self.top.geometry('640x520')
+        self.top.geometry('640x580')
 
         self._label_status = tk.Label(
             self.top, text='', fg='#94a3b8', bg='#0f172a',
@@ -83,6 +100,40 @@ class CameraWindow:
 
         self._label_image = tk.Label(self.top, bg='#020617')
         self._label_image.pack(side='top', fill='both', expand=True, padx=8, pady=(0, 8))
+
+        # Control strip: lawn-check + camera port switch + camera info.
+        # All buttons fire-and-forget — they print verbose diagnostics to
+        # stderr so the operator can debug from the same terminal that
+        # launched the GUI.
+        ctrl = tk.Frame(self.top, bg='#0f172a')
+        ctrl.pack(side='top', fill='x', padx=8, pady=(0, 8))
+        self._btn_lawn = tk.Button(
+            ctrl, text='🌱 Lawn Check (Claude)', command=self._on_lawn_check,
+            bg='#22c55e', fg='#0f172a', activebackground='#16a34a',
+            font=('Helvetica', 11, 'bold'), bd=0, padx=12, pady=6,
+        )
+        self._btn_lawn.pack(side='left', padx=(0, 6))
+        self._btn_cam0 = tk.Button(
+            ctrl, text='Port 0', command=lambda: self._on_switch_port(0),
+            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            font=('Helvetica', 10), bd=0, padx=10, pady=6,
+        )
+        self._btn_cam0.pack(side='left', padx=2)
+        self._btn_cam1 = tk.Button(
+            ctrl, text='Port 1', command=lambda: self._on_switch_port(1),
+            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            font=('Helvetica', 10), bd=0, padx=10, pady=6,
+        )
+        self._btn_cam1.pack(side='left', padx=2)
+        self._btn_caminfo = tk.Button(
+            ctrl, text='Camera Info', command=self._on_camera_info,
+            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            font=('Helvetica', 10), bd=0, padx=10, pady=6,
+        )
+        self._btn_caminfo.pack(side='left', padx=2)
+
+        if not _LAWN_AVAILABLE:
+            self._btn_lawn.config(state='disabled', bg='#334155', fg='#64748b')
 
         self._photo = None      # keep a strong ref so Tk doesn't GC the PhotoImage
 
@@ -154,8 +205,244 @@ class CameraWindow:
                 self._set_status(f'Display error: {e}')
         self.top.after(50, self._drain)
 
+    # ----- Camera-port + lawn-check controls --------------------------------
+
+    def _on_switch_port(self, port):
+        """Stop the live preview, switch CSI port on the shared CameraSource,
+        and resume.  Prints every step to stderr so debugging which port
+        the sensor is actually on doesn't require digging into the BLE
+        replies in parallel.
+
+        Runs synchronously on the GUI thread: set_camera_num re-opens
+        picamera2 which can take ~1 s; that's a noticeable hitch in the
+        Tk loop but acceptable for a manual debug action."""
+        if self._camera is None:
+            self._set_status(f'Cannot switch to port {port}: --no-camera at startup.')
+            return
+        print(f'[desktop] requesting camera port switch to {port}…', file=sys.stderr)
+        self._set_status(f'Switching to port {port}…')
+        # Briefly stop the queue-drain by signalling a soft pause: drain
+        # whatever's queued so we don't render a half-frame after re-open.
+        try:
+            self._queue.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            actual = self._camera.set_camera_num(port)
+            self._set_status(f'Camera now on port {actual}.')
+            print(f'[desktop] camera switched to port {actual}.', file=sys.stderr)
+        except Exception as e:
+            self._set_status(f'Port {port} failed: {e}')
+            print(f'[desktop] port switch FAILED: {e}', file=sys.stderr)
+
+    def _on_camera_info(self):
+        """Print the full libcamera enumeration to stderr and update the
+        status bar with a compact summary.  This is the headline diagnostic
+        for 'why can't the Pi see my camera?' — if the port the ribbon is
+        plugged into doesn't appear here, the problem is electrical /
+        dtoverlay, not picamera2."""
+        if self._camera is None:
+            self._set_status('No camera available (--no-camera).')
+            return
+        cams = self._camera.cameras
+        st = self._camera.state
+        active = st['camera_num'] if st['camera_num'] is not None else 'default'
+        print('[desktop] =========== CAMERA INFO ===========', file=sys.stderr)
+        if not cams:
+            print('[desktop] No cameras detected by libcamera.', file=sys.stderr)
+            print(f'[desktop] last error: {self._camera.last_error}', file=sys.stderr)
+        else:
+            print(f'[desktop] active port: {active}', file=sys.stderr)
+            for i, info in enumerate(cams):
+                print(f'  [{i}] {info}', file=sys.stderr)
+        print('[desktop] ===================================', file=sys.stderr)
+        if not cams:
+            self._set_status(f'CAMINFO: none detected ({self._camera.last_error or "?"}).')
+        else:
+            summary = ', '.join(f'#{c.get("Num", "?")}:{c.get("Model", "?")}@loc{c.get("Location", "?")}'
+                                 for c in cams)
+            self._set_status(f'CAMINFO: {len(cams)} cam(s), active=port {active}. {summary}')
+
+    def _on_lawn_check(self):
+        """Capture a high-res still and ask Claude for a grass-health verdict.
+
+        Runs the capture + API call on a background thread so the Tk loop
+        keeps repainting.  Result is delivered back to the main thread
+        via after_idle(), which then pops a Toplevel showing the photo
+        and Claude's verdict — plus dumps the full structured response
+        to stderr so the operator has the same data in their terminal."""
+        if self._lawn_busy:
+            return
+        if not _LAWN_AVAILABLE:
+            self._set_status(f'Lawn check unavailable: {_LAWN_IMPORT_ERROR}')
+            return
+        if self._camera is None or not self._camera.available:
+            self._set_status('Lawn check: camera not available.')
+            return
+        if not os.environ.get('ANTHROPIC_API_KEY'):
+            self._set_status('Lawn check: set ANTHROPIC_API_KEY before launching the desktop.')
+            print('[desktop] LAWN CHECK aborted: ANTHROPIC_API_KEY is not set.', file=sys.stderr)
+            return
+
+        self._lawn_busy = True
+        self._btn_lawn.config(state='disabled', text='🌱 Working…', bg='#334155', fg='#94a3b8')
+        self._set_status('Lawn check: capturing photo + asking Claude…')
+        print('[desktop] LAWN CHECK starting…', file=sys.stderr)
+
+        def _work():
+            try:
+                jpeg = self._camera.capture_photo_jpeg()
+                if not jpeg:
+                    raise RuntimeError('Photo capture returned no bytes.')
+                # encode_for_api wants a file path; write to a tempfile.
+                import tempfile
+                fd, path = tempfile.mkstemp(prefix='lawncam_desktop_', suffix='.jpg')
+                try:
+                    os.write(fd, jpeg)
+                    os.close(fd)
+                    b64, media_type = _lawn_encode(path)
+                    result = _lawn_assess(b64, media_type)
+                finally:
+                    try: os.unlink(path)
+                    except Exception: pass
+                self._root.after_idle(lambda: self._on_lawn_done(jpeg, result))
+            except Exception as e:
+                err = str(e)
+                print(f'[desktop] LAWN CHECK failed: {err}', file=sys.stderr)
+                self._root.after_idle(lambda: self._on_lawn_failed(err))
+
+        threading.Thread(target=_work, daemon=True, name='wifi-desktop-lawn').start()
+
+    def _on_lawn_done(self, jpeg_bytes, result):
+        self._lawn_busy = False
+        self._btn_lawn.config(state='normal', text='🌱 Lawn Check (Claude)',
+                              bg='#22c55e', fg='#0f172a')
+        self._set_status('Lawn check complete — see popup.')
+        # Dump the full structured result to the console for the operator.
+        print('[desktop] =========== LAWN CHECK RESULT ===========', file=sys.stderr)
+        try:
+            import json
+            print(json.dumps(result, indent=2), file=sys.stderr)
+        except Exception:
+            print(repr(result), file=sys.stderr)
+        print('[desktop] ==========================================', file=sys.stderr)
+        LawnResultPopup(self._root, jpeg_bytes, result)
+
+    def _on_lawn_failed(self, msg):
+        self._lawn_busy = False
+        self._btn_lawn.config(state='normal', text='🌱 Lawn Check (Claude)',
+                              bg='#22c55e', fg='#0f172a')
+        self._set_status(f'Lawn check failed: {msg}')
+
     def close(self):
         self._stop.set()
+
+
+class LawnResultPopup:
+    """Modal-ish Tk Toplevel that shows the JPEG + the grass-health verdict.
+
+    Not actually modal — tkinter's grab_set on a Toplevel often misbehaves
+    on Linux desktops — but it's a distinct window that sits on top so
+    the operator can read the verdict without dismissing the camera
+    preview.  Closes with the X button or by hitting Escape."""
+
+    def __init__(self, root: tk.Tk, jpeg_bytes: bytes, result: dict):
+        self.top = tk.Toplevel(root)
+        self.top.title('Lawn Check Result')
+        self.top.configure(bg='#0f172a')
+        self.top.geometry('560x720')
+        self.top.bind('<Escape>', lambda _e: self.top.destroy())
+
+        # Header — colour-coded health bucket.
+        score = result.get('health_score')
+        present = bool(result.get('lawn_present'))
+        if not present:
+            bucket_label = 'No lawn detected'
+            bucket_color = '#94a3b8'
+            score_text = 'n/a'
+        else:
+            try:
+                s = int(score) if score is not None else 0
+            except Exception:
+                s = 0
+            if s <= 30:    bucket_label, bucket_color = 'Poor', '#ef4444'
+            elif s <= 75:  bucket_label, bucket_color = 'Fair', '#eab308'
+            else:          bucket_label, bucket_color = 'Healthy', '#22c55e'
+            score_text = f'{max(0, min(100, s))} / 100'
+
+        hdr = tk.Frame(self.top, bg='#0f172a')
+        hdr.pack(side='top', fill='x', padx=14, pady=(14, 6))
+        tk.Label(hdr, text='LAWN HEALTH', bg='#0f172a', fg='#94a3b8',
+                 font=('Helvetica', 10, 'bold')).pack(side='left')
+        tk.Label(hdr, text=score_text, bg='#0f172a', fg=bucket_color,
+                 font=('Helvetica', 22, 'bold')).pack(side='right')
+
+        tk.Label(self.top, text=bucket_label, bg='#0f172a', fg=bucket_color,
+                 font=('Helvetica', 12, 'bold')).pack(side='top', anchor='w', padx=14)
+
+        # Image
+        try:
+            from PIL import Image, ImageTk  # type: ignore
+            import io
+            img = Image.open(io.BytesIO(jpeg_bytes))
+            # Constrain to ~520 px wide so it fits.
+            w, h = img.size
+            scale = min(520.0 / w, 360.0 / h, 1.0)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.BILINEAR)
+            self._photo = ImageTk.PhotoImage(img)
+            tk.Label(self.top, image=self._photo, bg='#020617',
+                     borderwidth=0).pack(side='top', padx=14, pady=10)
+        except Exception as e:
+            tk.Label(self.top, text=f'(image preview failed: {e})',
+                     bg='#0f172a', fg='#94a3b8').pack(side='top', padx=14, pady=10)
+
+        # Verdict + recs scroll area.
+        body = tk.Frame(self.top, bg='#0f172a')
+        body.pack(side='top', fill='both', expand=True, padx=14, pady=(0, 8))
+
+        summary = (result.get('summary') or '').strip() or '(no summary returned)'
+        tk.Label(body, text='Summary', bg='#0f172a', fg='#94a3b8',
+                 font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
+        tk.Message(body, text=summary, width=520, bg='#0f172a', fg='#e2e8f0',
+                   font=('Helvetica', 11)).pack(fill='x', pady=(0, 8))
+
+        issues = result.get('issues') or []
+        if issues:
+            tk.Label(body, text='Issues', bg='#0f172a', fg='#94a3b8',
+                     font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
+            tk.Message(body, text='• ' + '\n• '.join(issues), width=520,
+                       bg='#0f172a', fg='#fcd34d',
+                       font=('Helvetica', 10)).pack(fill='x', pady=(0, 8))
+
+        recs = result.get('recommendations') or []
+        if recs:
+            tk.Label(body, text='Recommendations', bg='#0f172a', fg='#94a3b8',
+                     font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
+            tk.Message(body, text='• ' + '\n• '.join(recs), width=520,
+                       bg='#0f172a', fg='#86efac',
+                       font=('Helvetica', 10)).pack(fill='x', pady=(0, 8))
+
+        # Metadata footer.
+        meta_bits = []
+        if result.get('_model'): meta_bits.append(f'model={result["_model"]}')
+        if result.get('confidence') is not None:
+            try: meta_bits.append(f'conf={float(result["confidence"]) * 100:.0f}%')
+            except Exception: pass
+        usage = result.get('_usage') or {}
+        if usage:
+            meta_bits.append(f'tokens={usage.get("input_tokens", "?")}/{usage.get("output_tokens", "?")}')
+        if result.get('health_status'):
+            meta_bits.append(f'status={result["health_status"]}')
+        if meta_bits:
+            tk.Label(self.top, text='  •  '.join(meta_bits),
+                     bg='#0f172a', fg='#64748b',
+                     font=('Helvetica', 9), anchor='w').pack(side='bottom', fill='x',
+                                                              padx=14, pady=(0, 12))
+
+        tk.Button(self.top, text='Close', command=self.top.destroy,
+                  bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+                  font=('Helvetica', 10), bd=0, padx=14, pady=6).pack(
+            side='bottom', anchor='e', padx=14, pady=4)
 
 
 # --------------------------------------------------------------------------- #
