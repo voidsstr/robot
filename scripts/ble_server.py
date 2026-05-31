@@ -512,6 +512,35 @@ class TcpForwarder:
               file=sys.stderr)
         return False
 
+    def send_text(self, text):
+        """Send an arbitrary command line (no byte mapping). Returns
+        (True, reply) on success, (False, err) on failure. Used for
+        non-drive commands like MISSION that the wifi-desktop relay
+        recognises and handles itself."""
+        payload = (text.strip() + '\n').encode('ascii', 'replace')
+        last_err = None
+        with self._lock:
+            for _ in range(2):
+                try:
+                    if self._sock is None:
+                        self._connect_locked()
+                    self._sock.sendall(payload)
+                    try:
+                        reply = self._sock.recv(256).decode('ascii', errors='replace').strip()
+                    except Exception:
+                        reply = ''
+                    return True, reply or 'OK'
+                except Exception as e:
+                    try:
+                        if self._sock is not None:
+                            self._sock.close()
+                    except Exception:
+                        pass
+                    self._sock = None
+                    last_err = e
+                    time.sleep(0.2)
+        return False, f'ERR: {last_err}'
+
     def is_open(self):
         with self._lock:
             return self._sock is not None
@@ -1480,6 +1509,17 @@ def main():
             if lidar:
                 lidar.stop()
             push_reply('OK: LIDAR=off')
+            return
+
+        # Mission verbs are handled by the wifi-desktop relay (not by
+        # wifi-server / the Arduino). Forward as raw text via TcpForwarder.
+        # Supported: MISSION <route_name>, MISSION-ABORT, MISSION-STATUS.
+        if cmd.startswith('MISSION'):
+            if hasattr(link, 'send_text'):
+                ok, reply = link.send_text(cmd)
+                push_reply(reply or ('OK' if ok else 'ERR: relay'))
+            else:
+                push_reply('ERR: missions require --forward-tcp')
             return
 
         byte = COMMAND_MAP.get(cmd)

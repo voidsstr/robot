@@ -192,12 +192,16 @@ class BleRelay:
     time without round-tripping through the log file."""
 
     def __init__(self, host: str, port: int, client: CommandClient,
-                 logger: 'Logger', on_command=None):
+                 logger: 'Logger', on_command=None, on_mission=None):
         self._host = host
         self._port = port
         self._client = client
         self._logger = logger
         self._on_command = on_command or (lambda _cmd, _reply: None)
+        # on_mission(verb, arg) -> (ok: bool, reply: str). Called for
+        # MISSION / MISSION-ABORT / MISSION-STATUS commands from the
+        # BLE bridge so the phone can start/abort/query missions.
+        self._on_mission = on_mission or (lambda _v, _a: (False, 'ERR: mission handler not wired'))
         self._stop = threading.Event()
         self._listen_sock: socket.socket | None = None
         self._thread = threading.Thread(target=self._loop, daemon=True,
@@ -264,9 +268,32 @@ class BleRelay:
             buf += data
             while b'\n' in buf:
                 line, _, buf = buf.partition(b'\n')
-                cmd = line.decode('ascii', errors='replace').strip().upper()
+                cmd = line.decode('ascii', errors='replace').strip()
                 if not cmd:
                     continue
+                cmd_upper = cmd.upper()
+
+                # Mission verbs: handled in-GUI, never reach wifi-server.
+                if cmd_upper.startswith('MISSION'):
+                    parts = cmd.split(None, 1)
+                    verb = parts[0].upper()
+                    arg = parts[1].strip() if len(parts) > 1 else ''
+                    try:
+                        ok, reply = self._on_mission(verb, arg)
+                    except Exception as e:
+                        ok, reply = False, f'ERR: mission handler: {e}'
+                    print(f'[relay] mission {verb} {arg!r} -> '
+                          f'{"OK" if ok else "FAIL"}: {reply}', file=sys.stderr)
+                    reply_bytes = ((reply or 'OK') + '\n').encode('ascii')
+                    try:
+                        conn.sendall(reply_bytes)
+                    except Exception:
+                        return
+                    self._logger.add('BLE' if ok else 'ERROR',
+                                     f'phone → {verb} {arg} → {reply}')
+                    continue
+
+                cmd = cmd_upper
                 ok, reply = self._client.send_cmd(cmd)
                 print(f'[relay] phone {cmd} -> wifi-server {"OK" if ok else "FAIL"}: {reply}',
                       file=sys.stderr)
@@ -683,6 +710,34 @@ class CameraPanel:
                                  for c in cams)
             self._set_status(f'CAMINFO: {len(cams)} cam(s), active=port {active}. {summary}')
 
+    # ----- snapshot helpers (used by Routes / Mission tabs) ----------------
+    def capture_jpeg_now(self) -> bytes:
+        """Synchronous JPEG capture from the live camera, flipped if needed.
+        Used by waypoint capture + by the MissionRunner per-step frame."""
+        if self._camera is None:
+            return b''
+        try:
+            jpeg = self._camera.capture_video_jpeg()
+        except Exception:
+            return b''
+        if not jpeg:
+            return b''
+        if not self._flip or self._Image is None:
+            return jpeg
+        try:
+            import io
+            img = self._Image.open(io.BytesIO(jpeg)).transpose(self._Image.ROTATE_180)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=85)
+            return buf.getvalue()
+        except Exception:
+            return jpeg
+
+    def trigger_lawn_check(self):
+        """Public hook so the MissionRunner can fire the same lawn-check
+        path the on-screen button uses (Claude assessment + popup)."""
+        self._root.after_idle(self._on_lawn_check)
+
     def _on_lawn_check(self):
         if self._lawn_busy:
             return
@@ -997,6 +1052,20 @@ class LidarPanel:
             usable.append((float(ang) % 360.0, d_m))
         with self._scan_lock:
             self._latest_points = usable
+        self._last_scan_at = time.monotonic()
+        try:
+            cur_text = self._status.cget('text')
+            if cur_text.startswith('Lidar:') and 'running' not in cur_text:
+                self._root.after_idle(lambda: self._status.config(
+                    text=f'Lidar running — {len(usable)} returns/scan'))
+        except Exception:
+            pass
+
+    def latest_points(self):
+        """Snapshot of the most recent scan as a list of (angle°, dist_m).
+        Used by waypoint capture + the MissionRunner safety override."""
+        with self._scan_lock:
+            return list(self._latest_points)
         self._last_scan_at = time.monotonic()
         if self._status.cget('text').startswith('Lidar:') and 'running' not in self._status.cget('text'):
             try:
@@ -1346,6 +1415,410 @@ class DrivePanel:
 
 
 # --------------------------------------------------------------------------- #
+# Routes tab: Training (capture waypoints) + Mission (Claude-piloted run)
+# --------------------------------------------------------------------------- #
+try:
+    from routes import (
+        create_route as _routes_create, list_routes as _routes_list,
+        load_route as _routes_load, save_waypoint as _routes_save_wp,
+        StreamRecorder as _StreamRecorder,
+    )
+    from vision_navigator import VisionNavigator as _VisionNavigator, MissionRunner as _MissionRunner
+    _ROUTES_AVAILABLE = True
+    _ROUTES_IMPORT_ERROR = ''
+except Exception as e:
+    _ROUTES_AVAILABLE = False
+    _ROUTES_IMPORT_ERROR = str(e)
+
+
+class RoutesTab:
+    """Two panels side-by-side: Training (capture waypoints from manual
+    drive) and Mission (pick a saved route and let Claude pilot it)."""
+
+    def __init__(self, root: tk.Tk, parent: tk.Widget,
+                 client: CommandClient,
+                 camera_panel: 'CameraPanel | None',
+                 lidar_panel: 'LidarPanel | None',
+                 logger: 'Logger'):
+        self._root = root
+        self._client = client
+        self._camera_panel = camera_panel
+        self._lidar_panel = lidar_panel
+        self._logger = logger
+
+        self.frame = tk.Frame(parent, bg=BG)
+
+        if not _ROUTES_AVAILABLE:
+            tk.Label(self.frame,
+                     text=f'Routes / Mission unavailable: {_ROUTES_IMPORT_ERROR}',
+                     bg=BG, fg='#f87171',
+                     font=('Helvetica', 11), padx=14, pady=14, wraplength=600
+                     ).pack(side='top', anchor='w')
+            return
+
+        # Header
+        tk.Label(self.frame,
+                 text='Routes — train waypoints, then let Claude pilot',
+                 bg=BG, fg=FG_DIM, font=('Helvetica', 12, 'bold'),
+                 padx=14, pady=10, anchor='w'
+                 ).pack(side='top', fill='x')
+
+        body = tk.Frame(self.frame, bg=BG)
+        body.pack(side='top', fill='both', expand=True, padx=12, pady=(0, 12))
+
+        # ---- Training (left) -------------------------------------------- #
+        train = tk.Frame(body, bg=BG_DARK, bd=0)
+        train.pack(side='left', fill='both', expand=True, padx=(0, 6))
+        self._build_training_section(train)
+
+        # ---- Mission (right) -------------------------------------------- #
+        mission = tk.Frame(body, bg=BG_DARK, bd=0)
+        mission.pack(side='right', fill='both', expand=True, padx=(6, 0))
+        self._build_mission_section(mission)
+
+        # ---- Status line (bottom) --------------------------------------- #
+        self._status_lbl = tk.Label(self.frame, text='', bg=BG, fg=FG_DIM,
+                                     font=('Helvetica', 10), anchor='w',
+                                     padx=14, pady=4)
+        self._status_lbl.pack(side='bottom', fill='x')
+
+        self._refresh_route_list()
+
+    # ----- Training section ------------------------------------------------
+
+    def _build_training_section(self, parent):
+        tk.Label(parent, text='TRAINING', bg=BG_DARK, fg=FG_DIM,
+                 font=('Helvetica', 10, 'bold'), padx=12, pady=8,
+                 anchor='w').pack(side='top', fill='x')
+
+        # Route name + create/open
+        row = tk.Frame(parent, bg=BG_DARK)
+        row.pack(side='top', fill='x', padx=12, pady=4)
+        tk.Label(row, text='Route:', bg=BG_DARK, fg=FG,
+                 font=('Helvetica', 10)).pack(side='left')
+        self._route_name_var = tk.StringVar(value='')
+        tk.Entry(row, textvariable=self._route_name_var,
+                 bg='#1e293b', fg=FG, insertbackground=FG,
+                 font=('Helvetica', 10), width=18, bd=0
+                 ).pack(side='left', padx=6)
+        tk.Button(row, text='Create / Open', command=self._on_open_route,
+                  bg='#1e293b', fg=FG, activebackground='#334155',
+                  font=('Helvetica', 10), bd=0, padx=10, pady=4, takefocus=0
+                  ).pack(side='left')
+
+        self._current_route_lbl = tk.Label(
+            parent, text='No route open.', bg=BG_DARK, fg=FG_DIM,
+            font=('Helvetica', 10, 'italic'),
+            anchor='w', padx=12, pady=2)
+        self._current_route_lbl.pack(side='top', fill='x')
+
+        # Manual capture
+        cap_row = tk.Frame(parent, bg=BG_DARK)
+        cap_row.pack(side='top', fill='x', padx=12, pady=(8, 2))
+        self._capture_btn = tk.Button(
+            cap_row, text='📸  Capture Waypoint', command=self._on_capture_waypoint,
+            bg=ACCENT, fg=BG, activebackground='#16a34a',
+            font=('Helvetica', 11, 'bold'), bd=0, padx=14, pady=6,
+            state='disabled', takefocus=0)
+        self._capture_btn.pack(side='left')
+        self._label_var = tk.StringVar(value='')
+        tk.Entry(cap_row, textvariable=self._label_var,
+                 bg='#1e293b', fg=FG, insertbackground=FG,
+                 font=('Helvetica', 10), width=16, bd=0
+                 ).pack(side='left', padx=8)
+        tk.Label(cap_row, text='label (optional)', bg=BG_DARK, fg=FG_DIM,
+                 font=('Helvetica', 9)).pack(side='left')
+
+        # Continuous capture
+        cont_row = tk.Frame(parent, bg=BG_DARK)
+        cont_row.pack(side='top', fill='x', padx=12, pady=(8, 2))
+        self._record_btn = tk.Button(
+            cont_row, text='● Start Recording', command=self._on_toggle_recording,
+            bg='#1e293b', fg=FG, activebackground='#334155',
+            font=('Helvetica', 11, 'bold'), bd=0, padx=14, pady=6,
+            state='disabled', takefocus=0)
+        self._record_btn.pack(side='left')
+        tk.Label(cont_row, text='(2 fps, distills into waypoints on End)',
+                 bg=BG_DARK, fg=FG_DIM, font=('Helvetica', 9)
+                 ).pack(side='left', padx=8)
+
+        self._wp_list_lbl = tk.Label(parent, text='Waypoints: —', bg=BG_DARK,
+                                      fg=FG, font=('Helvetica', 10, 'bold'),
+                                      anchor='w', padx=12, pady=6)
+        self._wp_list_lbl.pack(side='top', fill='x')
+
+        list_frame = tk.Frame(parent, bg=BG_DARK)
+        list_frame.pack(side='top', fill='both', expand=True, padx=12, pady=(2, 10))
+        self._wp_listbox = tk.Listbox(
+            list_frame, bg='#020617', fg=FG,
+            font=('Monospace', 9), bd=0, highlightthickness=0,
+            selectbackground='#334155', activestyle='none')
+        self._wp_listbox.pack(side='left', fill='both', expand=True)
+        wp_scroll = tk.Scrollbar(list_frame, command=self._wp_listbox.yview)
+        wp_scroll.pack(side='right', fill='y')
+        self._wp_listbox.config(yscrollcommand=wp_scroll.set)
+
+        # State
+        self._route = None
+        self._recorder = None
+        self._record_after_id = None
+
+    def _on_open_route(self):
+        name = self._route_name_var.get().strip()
+        if not name:
+            self._set_status('Enter a route name first.')
+            return
+        try:
+            existing = _routes_list()
+            if name in existing:
+                self._route = _routes_load(name)
+                self._log('INFO', f'opened route "{name}" ({len(self._route.waypoints)} waypoints)')
+            else:
+                self._route = _routes_create(name)
+                self._log('INFO', f'created route "{name}"')
+        except Exception as e:
+            self._set_status(f'open failed: {e}')
+            return
+        self._refresh_open_route()
+        self._refresh_route_list()
+        self._capture_btn.config(state='normal')
+        self._record_btn.config(state='normal')
+
+    def _on_capture_waypoint(self):
+        if self._route is None or self._camera_panel is None:
+            return
+        jpeg = self._camera_panel.capture_jpeg_now()
+        if not jpeg:
+            self._set_status('Capture failed: no camera frame.')
+            return
+        lidar_pts = (self._lidar_panel.latest_points()
+                     if self._lidar_panel is not None else [])
+        label = self._label_var.get().strip()
+        try:
+            wp = _routes_save_wp(self._route, jpeg, lidar_pts, label=label)
+        except Exception as e:
+            self._set_status(f'save failed: {e}')
+            return
+        self._label_var.set('')
+        self._log('INFO', f'captured waypoint #{wp.idx} ({wp.label})')
+        self._refresh_open_route()
+
+    def _on_toggle_recording(self):
+        if self._route is None:
+            return
+        if self._recorder is None:
+            try:
+                self._recorder = _StreamRecorder.begin(self._route)
+            except Exception as e:
+                self._set_status(f'start recording failed: {e}')
+                return
+            self._record_btn.config(text='■  End Recording', bg='#dc2626', fg='white')
+            self._log('INFO', f'recording stream to {self._recorder.stream_dir}')
+            self._record_tick()
+        else:
+            rec = self._recorder
+            self._recorder = None
+            if self._record_after_id:
+                try: self.frame.after_cancel(self._record_after_id)
+                except Exception: pass
+            self._record_after_id = None
+            self._record_btn.config(text='● Start Recording', bg='#1e293b', fg=FG)
+            self._set_status(f'distilling {rec.frame_count} frames into waypoints…')
+            try:
+                picks = rec.distill_waypoints()
+            except Exception as e:
+                self._set_status(f'distill failed: {e}')
+                return
+            self._log('INFO',
+                f'stream {rec.recording_id}: {rec.frame_count} frames → '
+                f'{len(picks)} new waypoints')
+            # Refresh route to pick up new waypoints written to disk.
+            try:
+                self._route = _routes_load(self._route.name)
+            except Exception:
+                pass
+            self._refresh_open_route()
+
+    def _record_tick(self):
+        if self._recorder is None or self._camera_panel is None:
+            return
+        try:
+            jpeg = self._camera_panel.capture_jpeg_now()
+            lidar_pts = (self._lidar_panel.latest_points()
+                         if self._lidar_panel is not None else [])
+            if jpeg:
+                self._recorder.push(jpeg, lidar_pts)
+        except Exception as e:
+            self._log('ERROR', f'stream frame failed: {e}')
+        # 2 fps cadence; trims disk I/O while still capturing motion.
+        self._record_after_id = self.frame.after(500, self._record_tick)
+
+    def _refresh_open_route(self):
+        if self._route is None:
+            self._current_route_lbl.config(text='No route open.')
+            self._wp_list_lbl.config(text='Waypoints: —')
+            self._wp_listbox.delete(0, 'end')
+            return
+        self._current_route_lbl.config(
+            text=f'Open: {self._route.name}   ({self._route.root})')
+        self._wp_list_lbl.config(text=f'Waypoints: {len(self._route.waypoints)}')
+        self._wp_listbox.delete(0, 'end')
+        for w in self._route.waypoints:
+            front = w.lidar.get('sectors_m', {}).get('fwd') if w.lidar else None
+            front_s = f'{front:.2f}m' if isinstance(front, (int, float)) else '—'
+            self._wp_listbox.insert(
+                'end', f'#{w.idx:03d}  {w.label[:22]:22}  fwd={front_s}')
+
+    # ----- Mission section -------------------------------------------------
+
+    def _build_mission_section(self, parent):
+        tk.Label(parent, text='MISSION  —  Claude pilots', bg=BG_DARK, fg=FG_DIM,
+                 font=('Helvetica', 10, 'bold'), padx=12, pady=8,
+                 anchor='w').pack(side='top', fill='x')
+
+        pick_row = tk.Frame(parent, bg=BG_DARK)
+        pick_row.pack(side='top', fill='x', padx=12, pady=4)
+        tk.Label(pick_row, text='Route:', bg=BG_DARK, fg=FG,
+                 font=('Helvetica', 10)).pack(side='left')
+        self._mission_route_var = tk.StringVar(value='')
+        self._mission_route_menu = ttk.Combobox(
+            pick_row, textvariable=self._mission_route_var,
+            state='readonly', width=22, font=('Helvetica', 10))
+        self._mission_route_menu.pack(side='left', padx=6)
+        tk.Button(pick_row, text='⟳', command=self._refresh_route_list,
+                  bg='#1e293b', fg=FG, activebackground='#334155',
+                  font=('Helvetica', 10), bd=0, padx=8, pady=2, takefocus=0
+                  ).pack(side='left')
+
+        btn_row = tk.Frame(parent, bg=BG_DARK)
+        btn_row.pack(side='top', fill='x', padx=12, pady=(10, 4))
+        self._start_btn = tk.Button(
+            btn_row, text='▶ Start Mission', command=self._on_start_mission,
+            bg=ACCENT, fg=BG, activebackground='#16a34a',
+            font=('Helvetica', 11, 'bold'), bd=0, padx=14, pady=6, takefocus=0)
+        self._start_btn.pack(side='left')
+        self._abort_btn = tk.Button(
+            btn_row, text='■ Abort', command=self._on_abort_mission,
+            bg='#dc2626', fg='white', activebackground='#991b1b',
+            font=('Helvetica', 11, 'bold'), bd=0, padx=14, pady=6,
+            state='disabled', takefocus=0)
+        self._abort_btn.pack(side='left', padx=8)
+
+        # Live status grid
+        grid = tk.Frame(parent, bg=BG_DARK)
+        grid.pack(side='top', fill='x', padx=12, pady=10)
+        self._mission_state_lbl = tk.Label(
+            grid, text='State: idle', bg=BG_DARK, fg=FG_DIM,
+            font=('Helvetica', 10, 'bold'), anchor='w')
+        self._mission_state_lbl.grid(row=0, column=0, sticky='w', pady=2)
+        self._mission_leg_lbl = tk.Label(
+            grid, text='Leg: —', bg=BG_DARK, fg=FG_DIM,
+            font=('Helvetica', 10), anchor='w')
+        self._mission_leg_lbl.grid(row=1, column=0, sticky='w', pady=2)
+        self._mission_wp_lbl = tk.Label(
+            grid, text='Waypoint: —', bg=BG_DARK, fg=FG_DIM,
+            font=('Helvetica', 10), anchor='w')
+        self._mission_wp_lbl.grid(row=2, column=0, sticky='w', pady=2)
+        self._mission_calls_lbl = tk.Label(
+            grid, text='Calls: 0/—', bg=BG_DARK, fg=FG_DIM,
+            font=('Helvetica', 10), anchor='w')
+        self._mission_calls_lbl.grid(row=3, column=0, sticky='w', pady=2)
+        self._mission_action_lbl = tk.Label(
+            parent, text='Last action: —', bg=BG_DARK, fg='#60a5fa',
+            font=('Helvetica', 10, 'bold'), padx=12, pady=2, anchor='w',
+            justify='left', wraplength=380)
+        self._mission_action_lbl.pack(side='top', fill='x')
+        self._mission_reason_lbl = tk.Label(
+            parent, text='Reasoning: —', bg=BG_DARK, fg=FG,
+            font=('Helvetica', 10), padx=12, pady=6, anchor='w',
+            justify='left', wraplength=380)
+        self._mission_reason_lbl.pack(side='top', fill='x')
+
+        self._runner = None
+
+    def _refresh_route_list(self):
+        try:
+            names = _routes_list()
+        except Exception:
+            names = []
+        self._mission_route_menu['values'] = names
+        if names and not self._mission_route_var.get():
+            self._mission_route_var.set(names[0])
+
+    def _on_start_mission(self):
+        name = self._mission_route_var.get().strip()
+        if not name:
+            self._set_status('Pick a route first.')
+            return
+        if self._runner is not None and self._runner.is_running():
+            self._set_status('A mission is already running.')
+            return
+        try:
+            route = _routes_load(name)
+        except Exception as e:
+            self._set_status(f'load failed: {e}')
+            return
+        if not route.waypoints:
+            self._set_status(f'Route "{name}" has no waypoints to navigate to.')
+            return
+        if self._camera_panel is None:
+            self._set_status('Camera panel unavailable; mission needs camera.')
+            return
+        runner = _MissionRunner(
+            route=route,
+            client=self._client,
+            frame_getter=self._camera_panel.capture_jpeg_now,
+            lidar_getter=(self._lidar_panel.latest_points
+                          if self._lidar_panel is not None else (lambda: [])),
+            on_status=lambda s: self._root.after_idle(
+                lambda: self._on_mission_status(s)),
+            on_log=lambda tag, msg: self._logger.add(tag, f'[mission] {msg}'),
+            lawn_photo_cb=self._camera_panel.trigger_lawn_check,
+        )
+        self._runner = runner
+        self._abort_btn.config(state='normal')
+        self._start_btn.config(state='disabled')
+        runner.start()
+        self._logger.add('INFO', f'mission "{name}" started ({len(route.waypoints)} waypoints)')
+        self._set_status(f'Mission "{name}" running…')
+
+    def _on_abort_mission(self):
+        if self._runner is None:
+            return
+        self._runner.abort()
+        self._abort_btn.config(state='disabled')
+
+    def _on_mission_status(self, s):
+        self._mission_state_lbl.config(text=f'State: {s.state}')
+        self._mission_leg_lbl.config(text=f'Leg: {s.leg or "—"}')
+        self._mission_wp_lbl.config(
+            text=f'Waypoint: {s.current_wp + 1 if s.total_wp else "—"}/{s.total_wp}')
+        self._mission_calls_lbl.config(text=f'Calls: {s.calls}/{s.calls_max}')
+        if s.last_action:
+            self._mission_action_lbl.config(text=f'Last action: {s.last_action}')
+        if s.last_reasoning:
+            self._mission_reason_lbl.config(text=f'Reasoning: {s.last_reasoning}')
+        if s.state in ('completed', 'aborted', 'failed'):
+            self._start_btn.config(state='normal')
+            self._abort_btn.config(state='disabled')
+
+    # ----- helpers ---------------------------------------------------------
+
+    def _set_status(self, msg):
+        try:
+            self._status_lbl.config(text=msg)
+        except Exception:
+            pass
+
+    def _log(self, tag, msg):
+        try:
+            self._logger.add(tag, f'[routes] {msg}')
+        except Exception:
+            pass
+        self._set_status(msg)
+
+
+# --------------------------------------------------------------------------- #
 # Entrypoint
 # --------------------------------------------------------------------------- #
 def main():
@@ -1452,6 +1925,10 @@ def main():
         lidar_panel.frame.config(width=360, height=360)
         lidar_panel.frame.pack(side='bottom', fill='x', pady=(8, 0))
 
+    # --- Routes tab (Training + Mission) ---------------------------------- #
+    # Created later (after Logger + CameraPanel + LidarPanel exist) but
+    # added to the Notebook in tab order before Logs.
+
     # --- Logs tab + Logger (built first so DriveController can log) ------- #
     logs_tab = tk.Frame(notebook, bg=BG)
     notebook.add(logs_tab, text='Logs')
@@ -1480,13 +1957,61 @@ def main():
     drive_panel.frame.pack(side='top', fill='x')
     drive.bind_keys(root)
 
+    # Routes tab now that we have client + camera + lidar panels + logger.
+    routes_tab = tk.Frame(notebook, bg=BG)
+    # Insert between Drive (index 0) and Logs (index 1).
+    notebook.insert(1, routes_tab, text='Routes')
+    routes_panel = RoutesTab(root, routes_tab, client, cam_panel, lidar_panel, logger)
+    routes_panel.frame.pack(fill='both', expand=True)
+
     # --- BLE relay (so BLE commands can reach wifi-server through us) ----- #
     relay = None
     if args.ble_relay_port and args.ble_relay_port > 0:
+        def _on_mission_cmd(verb, arg):
+            """Bridge MISSION verbs from BLE to the Routes tab. Runs on the
+            relay's worker thread — re-enter Tk via after_idle for any UI
+            mutations; everything we need to call here is thread-safe."""
+            try:
+                if verb == 'MISSION':
+                    if not arg:
+                        return False, 'ERR: MISSION needs a route name'
+                    # Pre-load the route on the worker thread so we get a
+                    # synchronous error reply if it doesn't exist.
+                    try:
+                        rt = _routes_load(arg)
+                    except Exception as e:
+                        return False, f'ERR: no such route ({e})'
+                    if not rt.waypoints:
+                        return False, 'ERR: route has no waypoints'
+                    # Kick the GUI to start. routes_panel uses after_idle
+                    # internally for Tk updates; runner.start() itself is
+                    # just thread spawning so calling from here is safe.
+                    routes_panel._mission_route_var.set(arg)
+                    root.after_idle(routes_panel._on_start_mission)
+                    return True, f'OK: starting mission {arg} ({len(rt.waypoints)} wp)'
+                elif verb == 'MISSION-ABORT':
+                    if routes_panel._runner is None:
+                        return False, 'ERR: no mission running'
+                    routes_panel._runner.abort()
+                    return True, 'OK: abort sent'
+                elif verb == 'MISSION-STATUS':
+                    if routes_panel._runner is None:
+                        return True, 'OK: state=idle'
+                    s = routes_panel._runner.status
+                    return True, (
+                        f'OK: state={s.state} leg={s.leg or "-"} '
+                        f'wp={s.current_wp + 1}/{s.total_wp} '
+                        f'calls={s.calls}/{s.calls_max}')
+                else:
+                    return False, f'ERR: unknown mission verb {verb!r}'
+            except Exception as e:
+                return False, f'ERR: {e}'
+
         relay = BleRelay('127.0.0.1', args.ble_relay_port, client, logger,
                          on_command=lambda cmd, reply: root.after_idle(
                              lambda: drive_panel.set_ble_state(
-                                 'connected', f'{cmd} → {reply}')))
+                                 'connected', f'{cmd} → {reply}')),
+                         on_mission=_on_mission_cmd)
         relay.start()
 
     # --- BLE log tail (optional) ------------------------------------------ #
