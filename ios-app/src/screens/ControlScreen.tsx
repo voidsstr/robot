@@ -34,12 +34,19 @@
 // is well under BLE's connection-interval bandwidth budget.
 const REPEAT_INTERVAL_MS = 50;
 
+// Joystick geometry. The thumb is clamped inside the base; DEADZONE is how
+// far (px) it must move off-centre before we start emitting nudges, so a
+// resting/centred stick sends nothing.
+const JOY_SIZE = 220;
+const JOY_THUMB = 88;
+const JOY_MAX_OFFSET = (JOY_SIZE - JOY_THUMB) / 2;
+const JOY_DEADZONE = 18;
+
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform, Alert,
   Image, Modal, ActivityIndicator, ScrollView, TextInput,
-  AppState, AppStateStatus, Linking, PanResponder, GestureResponderEvent,
-  PanResponderGestureState,
+  AppState, AppStateStatus, Linking, PanResponder, Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -55,6 +62,7 @@ import {
 import { ControlMode, getControlMode, setControlMode, DEFAULT_MODE } from '../lib/controlMode';
 import MapModal from './MapModal';
 import { LAST_ROBOT_KEY } from './ScanScreen';
+import UpdateFooter from '../components/UpdateFooter';
 
 type Props = {
   deviceId: string;
@@ -1040,11 +1048,86 @@ function SettingsModal({
               >
                 <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save key'}</Text>
               </TouchableOpacity>
+
+              <View style={styles.settingsDivider} />
+
+              <UpdateFooter />
             </View>
           </ScrollView>
         </View>
       </View>
     </Modal>
+  );
+}
+
+// Draggable thumbstick. Same wire protocol as the d-pad: while the stick is
+// deflected past the deadzone we emit UP/DOWN and/or LEFT/RIGHT every
+// REPEAT_INTERVAL_MS, so each axis ramps the Arduino's throttle exactly like
+// holding a pad button. Pushing into a corner emits both axes → diagonals.
+// Releasing springs the thumb back to centre and stops the nudges, but —
+// like the d-pad — does NOT auto-STOP; the robot holds its last speed and
+// the red STOP button below is the explicit halt.
+function Joystick({ disabled, onCommand }: { disabled: boolean; onCommand: (cmd: string) => void }) {
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const vec = useRef({ x: 0, y: 0 });
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Refs so the once-created PanResponder always sees current values.
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  const onCommandRef = useRef(onCommand);
+  onCommandRef.current = onCommand;
+
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => !disabledRef.current,
+      onMoveShouldSetPanResponder: () => !disabledRef.current,
+      onPanResponderGrant: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        if (timer.current) clearInterval(timer.current);
+        timer.current = setInterval(() => {
+          const { x, y } = vec.current;
+          // y is screen-down-positive, so "up" is negative.
+          if (y < -JOY_DEADZONE) onCommandRef.current('UP');
+          else if (y > JOY_DEADZONE) onCommandRef.current('DOWN');
+          if (x < -JOY_DEADZONE) onCommandRef.current('LEFT');
+          else if (x > JOY_DEADZONE) onCommandRef.current('RIGHT');
+        }, REPEAT_INTERVAL_MS);
+      },
+      onPanResponderMove: (_e, g) => {
+        let dx = g.dx;
+        let dy = g.dy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > JOY_MAX_OFFSET) {
+          const k = JOY_MAX_OFFSET / dist;
+          dx *= k;
+          dy *= k;
+        }
+        vec.current = { x: dx, y: dy };
+        pan.setValue({ x: dx, y: dy });
+      },
+      onPanResponderRelease: end,
+      onPanResponderTerminate: end,
+    })
+  ).current;
+
+  function end() {
+    if (timer.current) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
+    vec.current = { x: 0, y: 0 };
+    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 6 }).start();
+  }
+
+  // Stop the repeat timer if the joystick unmounts mid-drag (e.g. mode flip).
+  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+
+  return (
+    <View style={[styles.joyBase, disabled && { opacity: 0.5 }]} {...responder.panHandlers}>
+      <Animated.View style={[styles.joyThumb, { transform: pan.getTranslateTransform() }]}>
+        <Ionicons name="move" size={32} color="#0f172a" />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -1090,6 +1173,16 @@ const styles = StyleSheet.create({
   },
   padBtnActive: { backgroundColor: '#0369a1', borderColor: '#38bdf8' },
   padSpacer: { width: 92 },
+  joyBase: {
+    width: JOY_SIZE, height: JOY_SIZE, borderRadius: JOY_SIZE / 2,
+    backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  joyThumb: {
+    width: JOY_THUMB, height: JOY_THUMB, borderRadius: JOY_THUMB / 2,
+    backgroundColor: '#38bdf8', borderWidth: 2, borderColor: '#7dd3fc',
+    alignItems: 'center', justifyContent: 'center',
+  },
   stopBtn: {
     width: 92, height: 92, borderRadius: 46,
     backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center',

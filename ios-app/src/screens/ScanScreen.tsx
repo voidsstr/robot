@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import type { Device } from 'react-native-ble-plx';
 import { startScan, waitForPoweredOn, connect, describeBleError, BleProblem } from '../lib/ble';
+import UpdateFooter from '../components/UpdateFooter';
 
 export const LAST_ROBOT_KEY = 'last_robot_id';
 
@@ -207,6 +208,8 @@ export default function ScanScreen({ onConnected }: Props) {
         <Ionicons name="refresh" size={18} color="#0f172a" />
         <Text style={styles.rescanText}>{scanning ? 'Scanning…' : 'Scan again'}</Text>
       </TouchableOpacity>
+
+      <UpdateFooter />
     </View>
   );
 }
