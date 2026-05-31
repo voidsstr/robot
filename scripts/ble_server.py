@@ -348,6 +348,175 @@ class AdapterHealthMonitor:
                 os._exit(3)
 
 
+# Reverse of COMMAND_MAP — first canonical name per byte. Used by TcpForwarder
+# to translate the byte we'd write to Arduino back into the CMD text that
+# wifi-server's TCP parser expects.
+_BYTE_TO_CMD = {}
+for _cmd, _byte in COMMAND_MAP.items():
+    _BYTE_TO_CMD.setdefault(_byte, _cmd)
+
+
+class RemoteFrameSource:
+    """Stands in for CameraSource when --frame-source is set: connects to a
+    TCP JPEG publisher (the wifi-desktop GUI) and caches the latest frame.
+
+    Lets the BLE bridge stream video to phones without owning /dev/video0
+    — the GUI is the sole picamera2 owner, the BLE bridge subscribes to
+    its frame stream. Wire format from the publisher:
+
+        repeating [4-byte big-endian length][JPEG bytes]
+    """
+
+    available = True
+    cameras: list = []
+    last_error = ''
+
+    def __init__(self, host, port):
+        self._host = host
+        self._port = port
+        self._latest_jpeg = None
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._connected = False
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name='ble-remote-frame-source')
+        self._thread.start()
+
+    @property
+    def state(self):
+        return {'camera_num': None, 'detected': True,
+                'video_size': (320, 240), 'video_quality': 60,
+                'photo_size': (320, 240), 'photo_quality': 60,
+                'remote': f'{self._host}:{self._port}',
+                'connected': self._connected}
+
+    def _loop(self):
+        import socket as _socket
+        import struct
+        while not self._stop.is_set():
+            try:
+                s = _socket.create_connection((self._host, self._port), timeout=5)
+                s.settimeout(10.0)
+                self._connected = True
+                print(f'[ble] frame source connected to {self._host}:{self._port}',
+                      file=sys.stderr)
+            except Exception as e:
+                self._connected = False
+                print(f'[ble] frame source connect failed ({e}); retrying in 2s',
+                      file=sys.stderr)
+                if self._stop.wait(2.0):
+                    return
+                continue
+            try:
+                buf = b''
+                while not self._stop.is_set():
+                    while len(buf) < 4:
+                        chunk = s.recv(4096)
+                        if not chunk:
+                            raise ConnectionError('publisher closed')
+                        buf += chunk
+                    size = struct.unpack('>I', buf[:4])[0]
+                    if size > 4 * 1024 * 1024:
+                        print(f'[ble] frame size {size} too big; resyncing',
+                              file=sys.stderr)
+                        break
+                    buf = buf[4:]
+                    while len(buf) < size:
+                        chunk = s.recv(min(8192, size - len(buf)))
+                        if not chunk:
+                            raise ConnectionError('publisher closed mid-frame')
+                        buf += chunk
+                    jpeg = buf[:size]
+                    buf = buf[size:]
+                    with self._lock:
+                        self._latest_jpeg = jpeg
+            except Exception as e:
+                self._connected = False
+                print(f'[ble] frame source error ({e}); reconnecting',
+                      file=sys.stderr)
+            finally:
+                try: s.close()
+                except Exception: pass
+                self._connected = False
+            if self._stop.wait(1.0):
+                return
+
+    def capture_video_jpeg(self):
+        with self._lock:
+            return self._latest_jpeg
+
+    def capture_photo_jpeg(self):
+        # Remote source has no high-res photo path — fall back to latest
+        # video frame so the BLE PHOTO command still returns something.
+        return self.capture_video_jpeg()
+
+    def capture_video_rgb(self):
+        return None  # unused by ble_server's own code paths
+
+    def set_camera_num(self, _n):
+        raise RuntimeError('camera-num switching not supported via --frame-source')
+
+    def close(self):
+        self._stop.set()
+
+
+class TcpForwarder:
+    """Drop-in replacement for ArduinoLink that forwards each command via TCP
+    to a wifi-server (bin/robot wifi-server) instead of writing the Arduino
+    serial port. Lets the BLE bridge coexist with wifi-server in the same
+    process tree — wifi-server stays the sole owner of /dev/ttyACM0.
+
+    The interface (send_byte, is_open) matches ArduinoLink so the rest of
+    ble_server.py is unchanged."""
+
+    def __init__(self, host, port):
+        self._host = host
+        self._port = port
+        self._sock = None
+        self._lock = threading.Lock()
+
+    def _connect_locked(self):
+        import socket
+        s = socket.create_connection((self._host, self._port), timeout=3.0)
+        s.settimeout(2.0)
+        # Drain the server's greeting line.
+        try: s.recv(256)
+        except Exception: pass
+        self._sock = s
+
+    def send_byte(self, ch):
+        cmd = _BYTE_TO_CMD.get(ch)
+        if cmd is None:
+            print(f'[ble] forward-tcp: no CMD for byte {ch!r}', file=sys.stderr)
+            return False
+        payload = (cmd + '\n').encode('ascii')
+        last_err = None
+        with self._lock:
+            for _ in range(2):
+                try:
+                    if self._sock is None:
+                        self._connect_locked()
+                    self._sock.sendall(payload)
+                    try: self._sock.recv(256)
+                    except Exception: pass
+                    return True
+                except Exception as e:
+                    try:
+                        if self._sock is not None:
+                            self._sock.close()
+                    except Exception: pass
+                    self._sock = None
+                    last_err = e
+                    time.sleep(0.2)
+        print(f'[ble] forward-tcp send failed to {self._host}:{self._port}: {last_err}',
+              file=sys.stderr)
+        return False
+
+    def is_open(self):
+        with self._lock:
+            return self._sock is not None
+
+
 class ArduinoLink:
     """Auto-reconnecting USB-serial link to the Arduino motor controller."""
 
@@ -881,30 +1050,62 @@ class LidarSource:
         self._thread = None
 
     def _run(self):
-        try:
-            self._lidar = self._RPLidar(self._port, baudrate=DEFAULT_LIDAR_BAUD, timeout=3)
-            # iter_scans yields lists of (quality, angle, distance) once
-            # per revolution.  min_len lower = more scans/sec but each
-            # scan is sparser; 100 is a reasonable floor for A1.
-            for scan in self._lidar.iter_scans(max_buf_meas=2000, min_len=100):
-                if self._stop.is_set():
-                    break
-                pts = [(float(angle), int(dist)) for (_q, angle, dist) in scan if dist > 0]
-                try:
-                    self._on_scan(pts)
-                except Exception as e:
-                    print(f'[ble] lidar on_scan callback error: {e}', file=sys.stderr)
-        except Exception as e:
-            print(f'[ble] lidar thread exited: {e}', file=sys.stderr)
-            self._available = False
-            self._reason = str(e)
-        finally:
+        # Up to two startup attempts. "Incorrect descriptor starting bytes"
+        # happens when the A1 was left mid-scan by the previous owner —
+        # disconnect, sleep, reconnect and the second pass usually syncs.
+        attempt = 0
+        while not self._stop.is_set():
+            attempt += 1
             try:
-                if self._lidar is not None:
-                    self._lidar.stop(); self._lidar.stop_motor(); self._lidar.disconnect()
-            except Exception:
-                pass
-            self._lidar = None
+                self._lidar = self._RPLidar(self._port,
+                                            baudrate=DEFAULT_LIDAR_BAUD,
+                                            timeout=3)
+                # Force a known-good state before iter_scans by stopping any
+                # in-progress scan and the motor; ignore errors because some
+                # firmwares NACK these in IDLE.
+                try: self._lidar.stop()
+                except Exception: pass
+                try: self._lidar.stop_motor()
+                except Exception: pass
+                time.sleep(0.6)  # let the rotor wind down + buffer clear
+
+                for scan in self._lidar.iter_scans(max_buf_meas=2000, min_len=100):
+                    if self._stop.is_set():
+                        break
+                    pts = [(float(angle), int(dist))
+                           for (_q, angle, dist) in scan if dist > 0]
+                    try:
+                        self._on_scan(pts)
+                    except Exception as e:
+                        print(f'[ble] lidar on_scan callback error: {e}',
+                              file=sys.stderr)
+                # iter_scans returned cleanly: caller stopped us; bail out.
+                break
+            except Exception as e:
+                print(f'[ble] lidar thread error (attempt {attempt}): {e}',
+                      file=sys.stderr)
+                try:
+                    if self._lidar is not None:
+                        self._lidar.stop(); self._lidar.stop_motor()
+                        self._lidar.disconnect()
+                except Exception:
+                    pass
+                self._lidar = None
+                if attempt >= 2 or self._stop.is_set():
+                    self._available = False
+                    self._reason = str(e)
+                    break
+                # Wait a beat, then try again with a fresh connection.
+                print('[ble] retrying lidar in 1.5s…', file=sys.stderr)
+                time.sleep(1.5)
+        # Final cleanup.
+        try:
+            if self._lidar is not None:
+                self._lidar.stop(); self._lidar.stop_motor(); self._lidar.disconnect()
+        except Exception:
+            pass
+        self._lidar = None
+        self._thread = None
 
 
 class LidarStreamer:
@@ -1027,7 +1228,24 @@ def main():
                         help='Start scanning at boot instead of waiting for the app '
                              "to send LIDAR:ON.  Useful for SLAM-style use cases where "
                              "you want a continuous environment map.")
+    parser.add_argument('--no-serial', action='store_true',
+                        help="Do not open the Arduino serial port.  Pair with "
+                             "--forward-tcp to send commands to a wifi-server "
+                             "(bin/robot wifi-server) over TCP instead, so this "
+                             "bridge can coexist with wifi-server in the same Pi.")
+    parser.add_argument('--forward-tcp', default=None, metavar='HOST:PORT',
+                        help="Forward every BLE command to a wifi-server at "
+                             "HOST:PORT (e.g. 127.0.0.1:8080) instead of writing "
+                             "to /dev/ttyACM0.  Implies --no-serial.")
+    parser.add_argument('--frame-source', default=None, metavar='HOST:PORT',
+                        help="Pull JPEG video frames from a TCP publisher at "
+                             "HOST:PORT instead of opening picamera2 locally. "
+                             "Use to share the camera with the wifi-desktop GUI "
+                             "(which owns /dev/video0 in that mode). Implies "
+                             "the local libcamera path is NOT opened.")
     args = parser.parse_args()
+    if args.forward_tcp and not args.no_serial:
+        args.no_serial = True
 
     try:
         from bluezero import adapter, peripheral
@@ -1052,14 +1270,45 @@ def main():
             sys.exit('No Bluetooth adapter found. Try: sudo bluetoothctl power on')
         adapter_addr = adapters[0].address
 
-    link = ArduinoLink(args.serial, args.baud)
-    camera = (CameraSource(
-        video_size=(args.video_width, args.video_height),
-        photo_size=(args.photo_width, args.photo_height),
-        video_quality=DEFAULT_VIDEO_QUALITY,
-        photo_quality=DEFAULT_PHOTO_QUALITY,
-        camera_num=args.camera_num,
-    ) if not args.no_camera else None)
+    if args.forward_tcp:
+        try:
+            host, port_s = args.forward_tcp.rsplit(':', 1)
+            port = int(port_s)
+        except Exception:
+            sys.exit(f'Bad --forward-tcp value {args.forward_tcp!r}; expected HOST:PORT')
+        link = TcpForwarder(host, port)
+        print(f'Forwarding commands to wifi-server at {host}:{port} (no serial open).')
+    elif args.no_serial:
+        # --no-serial without --forward-tcp: drop commands on the floor.
+        # Mostly here so the user gets a clear message rather than a hung
+        # serial write.  Useful for "BLE peripheral up, but ignore Arduino"
+        # diagnostics.
+        class _NullLink:
+            def send_byte(self, _ch): return True
+            def is_open(self): return True
+        link = _NullLink()
+        print('--no-serial without --forward-tcp: BLE commands will be acknowledged but DROPPED.',
+              file=sys.stderr)
+    else:
+        link = ArduinoLink(args.serial, args.baud)
+    if args.frame_source:
+        try:
+            fs_host, fs_port_s = args.frame_source.rsplit(':', 1)
+            fs_port = int(fs_port_s)
+        except Exception:
+            sys.exit(f'Bad --frame-source value {args.frame_source!r}; expected HOST:PORT')
+        camera = RemoteFrameSource(fs_host, fs_port)
+        print(f'Using remote frame source {fs_host}:{fs_port} (libcamera not opened).')
+    elif not args.no_camera:
+        camera = CameraSource(
+            video_size=(args.video_width, args.video_height),
+            photo_size=(args.photo_width, args.photo_height),
+            video_quality=DEFAULT_VIDEO_QUALITY,
+            photo_quality=DEFAULT_PHOTO_QUALITY,
+            camera_num=args.camera_num,
+        )
+    else:
+        camera = None
     lidar = LidarSource(port=args.lidar_port) if not args.no_lidar else None
 
     robot = peripheral.Peripheral(adapter_addr, local_name=args.name)
@@ -1424,7 +1673,8 @@ def main():
             print(f'WARNING: could not start adapter health monitor: {e}', file=sys.stderr)
 
     print(f'BLE peripheral "{args.name}" advertising the Nordic UART Service on adapter {adapter_addr}.')
-    print(f'Forwarding commands directly to Arduino on {args.serial} @ {args.baud} baud.')
+    if not args.no_serial:
+        print(f'Forwarding commands directly to Arduino on {args.serial} @ {args.baud} baud.')
     if camera and camera.available:
         print(f'Video: {args.video_width}x{args.video_height} @ {args.video_fps} fps. '
               f'Photo: {args.photo_width}x{args.photo_height}.')

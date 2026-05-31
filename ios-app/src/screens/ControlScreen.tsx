@@ -768,7 +768,7 @@ function PhotoModal({
 
           {state.kind === 'done' && (
             <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 16 }}>
-              <HealthReport score={state.result.score} summary={state.result.summary} />
+              <HealthReport result={state.result} />
             </ScrollView>
           )}
 
@@ -799,38 +799,92 @@ function bucketForScore(score: number): { label: string; color: string } {
   return { label: 'Healthy', color: '#22c55e' };
 }
 
-function HealthReport({ score, summary }: { score: number | null; summary: string }) {
-  if (score == null) {
+const PRIORITY_COLORS: Record<'high' | 'medium' | 'low', string> = {
+  high:   '#f87171',
+  medium: '#fbbf24',
+  low:    '#86efac',
+};
+
+const PRIORITY_LABEL: Record<'high' | 'medium' | 'low', string> = {
+  high:   'This week',
+  medium: 'This month',
+  low:    'Seasonal',
+};
+
+function HealthReport({ result }: { result: GrassAssessment }) {
+  const { score, summary, issues, recommendations, status } = result;
+  const scoreBlock = score == null ? (
+    <View style={styles.scoreRow}>
+      <Text style={styles.scoreLabel}>Lawn health</Text>
+      <Text style={[styles.scoreValue, { color: '#94a3b8' }]}>n/a</Text>
+    </View>
+  ) : (() => {
+    const clamped = Math.max(0, Math.min(100, Math.round(score)));
+    const bucket = bucketForScore(clamped);
     return (
       <View>
         <View style={styles.scoreRow}>
           <Text style={styles.scoreLabel}>Lawn health</Text>
-          <Text style={[styles.scoreValue, { color: '#94a3b8' }]}>n/a</Text>
+          <Text style={[styles.scoreValue, { color: bucket.color }]}>{clamped}%</Text>
         </View>
-        <Text style={styles.modalSummary}>{summary}</Text>
+        <View style={styles.healthBarTrack}>
+          <View
+            style={[
+              styles.healthBarFill,
+              { width: `${clamped}%`, backgroundColor: bucket.color },
+            ]}
+          />
+        </View>
+        <Text style={[styles.bucketLabel, { color: bucket.color }]}>
+          {bucket.label}{status && status !== 'unknown' ? `  •  ${status}` : ''}
+        </Text>
       </View>
     );
-  }
-
-  const clamped = Math.max(0, Math.min(100, Math.round(score)));
-  const bucket = bucketForScore(clamped);
+  })();
 
   return (
     <View>
-      <View style={styles.scoreRow}>
-        <Text style={styles.scoreLabel}>Lawn health</Text>
-        <Text style={[styles.scoreValue, { color: bucket.color }]}>{clamped}%</Text>
-      </View>
-      <View style={styles.healthBarTrack}>
-        <View
-          style={[
-            styles.healthBarFill,
-            { width: `${clamped}%`, backgroundColor: bucket.color },
-          ]}
-        />
-      </View>
-      <Text style={[styles.bucketLabel, { color: bucket.color }]}>{bucket.label}</Text>
+      {scoreBlock}
       <Text style={styles.modalSummary}>{summary}</Text>
+
+      {issues.length > 0 && (
+        <View style={styles.lawnSection}>
+          <Text style={styles.lawnSectionLabel}>Issues spotted</Text>
+          {issues.map((it, i) => (
+            <View key={`issue-${i}`} style={styles.issueRow}>
+              <Text style={styles.issueDot}>•</Text>
+              <Text style={styles.issueText}>{it}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {recommendations.length > 0 && (
+        <View style={styles.lawnSection}>
+          <Text style={styles.lawnSectionLabel}>Recommendations  —  what to do, and when</Text>
+          {recommendations.map((r, i) => (
+            <View key={`rec-${i}`} style={styles.recCard}>
+              <View style={styles.recHeader}>
+                <View style={[
+                  styles.recPriorityPill,
+                  { backgroundColor: PRIORITY_COLORS[r.priority] + '33',
+                    borderColor: PRIORITY_COLORS[r.priority] },
+                ]}>
+                  <Text style={[styles.recPriorityText, { color: PRIORITY_COLORS[r.priority] }]}>
+                    {PRIORITY_LABEL[r.priority].toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.recAction, { color: PRIORITY_COLORS[r.priority] }]}>
+                {r.action}
+              </Text>
+              {r.when ? (
+                <Text style={styles.recWhen}>When: {r.when}</Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -1061,7 +1115,7 @@ const styles = StyleSheet.create({
   modalTitle: { color: '#f1f5f9', fontSize: 18, fontWeight: '700' },
   modalImg: { width: '100%', aspectRatio: 4 / 3, borderRadius: 12, marginBottom: 12, backgroundColor: '#020617' },
   modalBody: { paddingVertical: 18, alignItems: 'center', gap: 10 },
-  modalScroll: { maxHeight: 240 },
+  modalScroll: { maxHeight: 480 },
   modalStatus: { color: '#cbd5e1', fontSize: 14, textAlign: 'center', paddingHorizontal: 8 },
   modalLinkBtn: { marginTop: 6, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#1e293b', borderRadius: 10 },
   modalLinkText: { color: '#38bdf8', fontWeight: '600' },
@@ -1075,6 +1129,29 @@ const styles = StyleSheet.create({
   healthBarFill: { height: '100%', borderRadius: 5 },
   bucketLabel: { fontSize: 13, fontWeight: '700', marginBottom: 10, letterSpacing: 0.5 },
   modalSummary: { color: '#e2e8f0', fontSize: 15, lineHeight: 21 },
+  lawnSection: { marginTop: 14 },
+  lawnSectionLabel: {
+    color: '#94a3b8', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  issueRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4 },
+  issueDot: { color: '#fcd34d', fontSize: 14, lineHeight: 18, marginRight: 8 },
+  issueText: { color: '#fcd34d', fontSize: 14, lineHeight: 18, flex: 1 },
+  recCard: {
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    marginBottom: 8,
+  },
+  recHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  recPriorityPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  recPriorityText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  recAction: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  recWhen: { color: '#cbd5e1', fontSize: 13, lineHeight: 18 },
 
   settingsLabel: { color: '#f1f5f9', fontSize: 14, fontWeight: '600', alignSelf: 'stretch' },
   settingsHint: { color: '#94a3b8', fontSize: 12, lineHeight: 17, alignSelf: 'stretch' },

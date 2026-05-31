@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
 """Pi desktop GUI for WiFi-mode operation.
 
-Spawns two top-level Tk windows on the Pi's desktop so the operator can
-see what the robot sees while driving over WiFi from the same machine:
+Single Tk window with three side-by-side panels:
 
-  1. "Robot Camera" — live IMX519 preview at ~5 fps.
-  2. "Robot Lidar"  — top-down polar plot of the latest RPLidar scan.
-                      Robot sits at the centre, range rings every 1 m,
-                      and the nearest obstacle in each 30° sector is
-                      annotated with its distance in metres.
+  1. CameraPanel — live IMX519 preview at ~5 fps (flipped 180° because
+                   the sensor is mounted upside-down). Includes the
+                   Lawn Check / port-switch / Camera Info buttons.
+  2. LidarPanel  — top-down polar plot of the latest RPLidar scan.
+                   Robot at centre, range rings in metres, nearest hit
+                   in each 30° sector labelled. Hidden with --no-lidar.
+  3. DrivePanel  — on-screen D-pad + status. Sends UP/DOWN/LEFT/RIGHT/
+                   STOP to `bin/robot wifi-server` on 127.0.0.1:8080.
+                   The same arrow keys / WASD / Space work as soon as
+                   this window has focus (hold to drive, release for STOP).
 
-Hardware reuse: CameraSource and LidarSource are imported straight from
+Hardware reuse: CameraSource and LidarSource come straight from
 scripts/ble_server.py — there's only one camera and one lidar attached
 to the Pi, so wifi-desktop and ble_server cannot run simultaneously
 (scripts/run-wifi-desktop.sh handles that).
 
 Usage:
     python3 scripts/wifi_desktop.py
-    python3 scripts/wifi_desktop.py --no-lidar    # camera only
-    python3 scripts/wifi_desktop.py --no-camera   # lidar only
+    python3 scripts/wifi_desktop.py --no-lidar    # camera + controls
+    python3 scripts/wifi_desktop.py --no-camera   # lidar + controls
+    python3 scripts/wifi_desktop.py --no-flip     # keep image right-side-up
 
 Run alongside `bin/robot wifi-server`. The wrapper script
 scripts/run-wifi-desktop.sh starts both for you.
@@ -30,10 +35,12 @@ import argparse
 import math
 import os
 import queue
+import socket
 import sys
 import threading
 import time
 import tkinter as tk
+from tkinter import ttk
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -45,10 +52,14 @@ except Exception as e:
     sys.exit(f'Could not import CameraSource/LidarSource from ble_server.py: {e}\n'
              'Make sure scripts/ble_server.py is present and unmodified.')
 
-# Grass-health helpers live in lawn_camera.py — same scripts/ directory, so
-# the import is cheap.  We tolerate the file or its deps being missing
-# (PIL / anthropic SDK) so the GUI still works for camera + map without
-# the lawn-check button.
+# Reuse the proven persistent-socket command client from web_drive.py so
+# both UIs talk to wifi-server the same way (one connection, serialised
+# writes, single reconnect on transport error).
+try:
+    from web_drive import CommandClient  # type: ignore
+except Exception as e:
+    sys.exit(f'Could not import CommandClient from web_drive.py: {e}')
+
 try:
     from lawn_camera import encode_for_api as _lawn_encode  # type: ignore
     from lawn_camera import assess_lawn as _lawn_assess    # type: ignore
@@ -61,73 +72,468 @@ except Exception as e:
     _LAWN_IMPORT_ERROR = str(e)
 
 
-# We treat lidar returns shorter than this as the chassis / specular
-# noise, and longer than this as out of the A1's useful range.
 LIDAR_MIN_M = 0.10
 LIDAR_MAX_M = 12.0
 
+BG       = '#0f172a'
+BG_DARK  = '#020617'
+FG       = '#e2e8f0'
+FG_DIM   = '#94a3b8'
+ACCENT   = '#22c55e'
+ACTIVE   = '#2563eb'
+
 
 # --------------------------------------------------------------------------- #
-# Camera window
+# Logger + BLE log tail
 # --------------------------------------------------------------------------- #
-class CameraWindow:
-    """Tk top-level showing live camera frames.
+class Logger:
+    """Thread-safe append-only log view. Entries are queued from any thread
+    and flushed onto the Tk Text widget via after_idle. Old lines are trimmed
+    once we exceed MAX_LINES."""
+
+    MAX_LINES = 5000
+    TAG_COLORS = {
+        'GUI':       '#60a5fa',  # commands the GUI's drive controls send
+        'WIFI':      '#22d3ee',  # wifi-server replies (= byte to Arduino)
+        'BLE':       '#86efac',  # commands arriving over BLE
+        'BLE_STATE': '#fbbf24',  # BLE connect / disconnect / pair events
+        'ERROR':     '#f87171',
+        'INFO':      '#94a3b8',
+    }
+
+    def __init__(self, parent: tk.Widget):
+        self.frame = tk.Frame(parent, bg=BG)
+
+        toolbar = tk.Frame(self.frame, bg=BG)
+        toolbar.pack(side='top', fill='x', padx=8, pady=(8, 4))
+
+        tk.Label(toolbar, text='Real-time log: GUI commands, wifi-server replies, BLE events.',
+                 bg=BG, fg=FG_DIM, font=('Helvetica', 10), anchor='w'
+                 ).pack(side='left', fill='x', expand=True)
+
+        self._autoscroll_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(toolbar, text='Auto-scroll', variable=self._autoscroll_var,
+                       bg=BG, fg=FG_DIM, selectcolor=BG_DARK,
+                       activebackground=BG, activeforeground=FG,
+                       font=('Helvetica', 10), takefocus=0
+                       ).pack(side='left', padx=(0, 8))
+
+        tk.Button(toolbar, text='Clear', command=self.clear,
+                  bg='#1e293b', fg=FG, activebackground='#334155',
+                  font=('Helvetica', 10), bd=0, padx=10, pady=4, takefocus=0
+                  ).pack(side='right')
+
+        text_frame = tk.Frame(self.frame, bg=BG)
+        text_frame.pack(side='top', fill='both', expand=True, padx=8, pady=(0, 8))
+        self._text = tk.Text(text_frame, bg=BG_DARK, fg=FG, bd=0,
+                             font=('Monospace', 10), wrap='none',
+                             state='disabled', highlightthickness=0,
+                             insertbackground=FG)
+        self._text.pack(side='left', fill='both', expand=True)
+        scroll = tk.Scrollbar(text_frame, command=self._text.yview)
+        scroll.pack(side='right', fill='y')
+        self._text.config(yscrollcommand=scroll.set)
+
+        for tag, color in self.TAG_COLORS.items():
+            self._text.tag_config(tag, foreground=color)
+
+        self._lock = threading.Lock()
+        self._pending: list[tuple[str, str]] = []
+        self._flush_scheduled = False
+
+    def add(self, tag: str, msg: str):
+        ts = time.strftime('%H:%M:%S')
+        line = f'{ts}  [{tag:<9}]  {msg}\n'
+        if tag not in self.TAG_COLORS:
+            tag = 'INFO'
+        with self._lock:
+            self._pending.append((tag, line))
+            need_flush = not self._flush_scheduled
+            if need_flush:
+                self._flush_scheduled = True
+        if need_flush:
+            try:
+                self._text.after_idle(self._flush)
+            except RuntimeError:
+                pass  # Tk shutting down
+
+    def _flush(self):
+        with self._lock:
+            items = self._pending
+            self._pending = []
+            self._flush_scheduled = False
+        if not items:
+            return
+        self._text.config(state='normal')
+        for tag, line in items:
+            self._text.insert('end', line, tag)
+        total_lines = int(self._text.index('end-1c').split('.')[0])
+        if total_lines > self.MAX_LINES:
+            self._text.delete('1.0', f'{total_lines - self.MAX_LINES + 1}.0')
+        self._text.config(state='disabled')
+        if self._autoscroll_var.get():
+            self._text.see('end')
+
+    def clear(self):
+        self._text.config(state='normal')
+        self._text.delete('1.0', 'end')
+        self._text.config(state='disabled')
+
+
+class BleRelay:
+    """TCP listener that accepts ONE client (the BLE bridge) and forwards
+    its newline-terminated CMD lines through the GUI's CommandClient.
+
+    Why: wifi-server is single-client. The GUI's CommandClient already
+    holds that slot, so the BLE bridge can't connect to wifi-server
+    directly. Instead, the BLE bridge points its --forward-tcp at us
+    (this relay), and we funnel its commands into the GUI's existing
+    connection. Bonus: every BLE command lands in the Logger in real
+    time without round-tripping through the log file."""
+
+    def __init__(self, host: str, port: int, client: CommandClient,
+                 logger: 'Logger', on_command=None):
+        self._host = host
+        self._port = port
+        self._client = client
+        self._logger = logger
+        self._on_command = on_command or (lambda _cmd, _reply: None)
+        self._stop = threading.Event()
+        self._listen_sock: socket.socket | None = None
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name='wifi-desktop-ble-relay')
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        try:
+            if self._listen_sock:
+                self._listen_sock.close()
+        except Exception:
+            pass
+
+    def _loop(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((self._host, self._port))
+            s.listen(1)
+            s.settimeout(0.5)
+            self._listen_sock = s
+        except Exception as e:
+            self._logger.add('ERROR',
+                             f'BLE relay bind {self._host}:{self._port} failed: {e}')
+            return
+        self._logger.add('INFO',
+                         f'BLE relay listening on {self._host}:{self._port} '
+                         '(BLE bridge -> GUI -> wifi-server)')
+        while not self._stop.is_set():
+            try:
+                conn, addr = s.accept()
+            except socket.timeout:
+                continue
+            except Exception:
+                if self._stop.is_set():
+                    break
+                continue
+            conn.settimeout(2.0)
+            self._logger.add('INFO',
+                             f'BLE bridge attached to relay: {addr[0]}:{addr[1]}')
+            try:
+                conn.sendall(b'OK: relay ready\n')
+                self._serve(conn)
+            except Exception as e:
+                self._logger.add('ERROR', f'BLE relay client error: {e}')
+            finally:
+                try: conn.close()
+                except Exception: pass
+                self._logger.add('INFO', 'BLE bridge detached from relay.')
+
+    def _serve(self, conn: socket.socket):
+        buf = b''
+        while not self._stop.is_set():
+            try:
+                data = conn.recv(256)
+            except socket.timeout:
+                continue
+            if not data:
+                print('[relay] BLE bridge closed the connection', file=sys.stderr)
+                return
+            buf += data
+            while b'\n' in buf:
+                line, _, buf = buf.partition(b'\n')
+                cmd = line.decode('ascii', errors='replace').strip().upper()
+                if not cmd:
+                    continue
+                ok, reply = self._client.send_cmd(cmd)
+                print(f'[relay] phone {cmd} -> wifi-server {"OK" if ok else "FAIL"}: {reply}',
+                      file=sys.stderr)
+                reply_bytes = ((reply or 'OK') + '\n').encode('ascii')
+                try:
+                    conn.sendall(reply_bytes)
+                except Exception:
+                    return
+                if ok:
+                    self._logger.add('BLE', f'phone → {cmd}')
+                    self._logger.add('WIFI', f'  forwarded: {cmd} → {reply}')
+                else:
+                    self._logger.add('ERROR', f'phone → {cmd} (wifi-server: {reply})')
+                self._on_command(cmd, reply)
+
+
+class JpegFramePublisher:
+    """TCP publisher of JPEG video frames for any local subscriber to read.
+
+    Wire format: repeating [4-byte big-endian length][JPEG bytes].
+    Each accepted client gets its own thread that waits on a condition
+    variable, grabs the latest frame, and sends it. Slow clients miss
+    intermediate frames (latest-wins) but never block the publisher.
+
+    The BLE bridge connects here via --frame-source so the camera can be
+    owned by the GUI and the phone still sees video — without the BLE
+    bridge fighting picamera2 for /dev/video0."""
+
+    def __init__(self, host: str, port: int, logger: 'Logger'):
+        self._host = host
+        self._port = port
+        self._logger = logger
+        self._latest_jpeg: bytes | None = None
+        self._latest_id = 0
+        self._cond = threading.Condition()
+        self._stop = threading.Event()
+        self._listen_sock: socket.socket | None = None
+        self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True,
+                                               name='wifi-desktop-jpeg-pub-accept')
+
+    def start(self):
+        self._accept_thread.start()
+
+    def stop(self):
+        self._stop.set()
+        try:
+            if self._listen_sock:
+                self._listen_sock.close()
+        except Exception:
+            pass
+        with self._cond:
+            self._cond.notify_all()
+
+    def publish(self, jpeg_bytes: bytes):
+        with self._cond:
+            self._latest_jpeg = jpeg_bytes
+            self._latest_id += 1
+            self._cond.notify_all()
+
+    def _accept_loop(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((self._host, self._port))
+            s.listen(2)
+            s.settimeout(0.5)
+            self._listen_sock = s
+        except Exception as e:
+            self._logger.add('ERROR',
+                             f'JPEG publisher bind {self._host}:{self._port} failed: {e}')
+            return
+        self._logger.add('INFO',
+                         f'JPEG frame publisher listening on {self._host}:{self._port}')
+        while not self._stop.is_set():
+            try:
+                conn, addr = s.accept()
+            except socket.timeout:
+                continue
+            except Exception:
+                if self._stop.is_set():
+                    break
+                continue
+            self._logger.add('INFO', f'Frame subscriber connected: {addr[0]}:{addr[1]}')
+            t = threading.Thread(target=self._serve_client, args=(conn, addr),
+                                 daemon=True, name='jpeg-pub-client')
+            t.start()
+
+    def _serve_client(self, conn: socket.socket, addr):
+        import struct
+        last_id = -1
+        try:
+            conn.settimeout(5.0)
+            while not self._stop.is_set():
+                with self._cond:
+                    while not self._stop.is_set() and self._latest_id == last_id:
+                        self._cond.wait(timeout=0.5)
+                    if self._stop.is_set():
+                        break
+                    jpeg = self._latest_jpeg
+                    last_id = self._latest_id
+                if not jpeg:
+                    continue
+                msg = struct.pack('>I', len(jpeg)) + jpeg
+                try:
+                    conn.sendall(msg)
+                except Exception:
+                    break
+        finally:
+            try: conn.close()
+            except Exception: pass
+            self._logger.add('INFO', f'Frame subscriber disconnected: {addr[0]}:{addr[1]}')
+
+
+class BleLogTail:
+    """Background thread that tails a file written by ble_server.py, parses
+    its '[ble] …' lines, routes events into the Logger, and notifies a
+    callback so the BLE status panel can update."""
+
+    def __init__(self, path: str, logger: Logger, on_state_change):
+        self._path = path
+        self._logger = logger
+        self._on_state_change = on_state_change   # (state, last_line) -> None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name='wifi-desktop-ble-tail')
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _loop(self):
+        # Wait for the file to appear (the launcher creates it at startup,
+        # but our thread may race with it).
+        deadline = time.monotonic() + 30
+        while not self._stop.is_set() and not os.path.exists(self._path):
+            if time.monotonic() > deadline:
+                self._logger.add('ERROR',
+                                 f'BLE log not found at {self._path} after 30s; '
+                                 'is ble_server.py running?')
+                return
+            time.sleep(0.5)
+        try:
+            f = open(self._path, 'r', errors='replace')
+        except Exception as e:
+            self._logger.add('ERROR', f'Could not open BLE log {self._path}: {e}')
+            return
+        try:
+            inode = os.fstat(f.fileno()).st_ino
+        except Exception:
+            inode = None
+        # Read from the beginning so we catch the startup banner ("advertising
+        # the Nordic UART Service…") on a fresh launcher start. The launcher
+        # truncates the log every run, so volume stays bounded.
+        while not self._stop.is_set():
+            line = f.readline()
+            if line:
+                self._handle(line.rstrip('\n'))
+                continue
+            time.sleep(0.1)
+            try:
+                st = os.stat(self._path)
+                if inode is not None and st.st_ino != inode:
+                    try: f.close()
+                    except Exception: pass
+                    f = open(self._path, 'r', errors='replace')
+                    inode = os.fstat(f.fileno()).st_ino
+            except FileNotFoundError:
+                pass
+        try: f.close()
+        except Exception: pass
+
+    def _handle(self, line: str):
+        if not line.strip():
+            return
+        # Strip ANSI escape sequences that wifi-server / TUI bits sometimes
+        # emit in the same log file (we tee both subprocesses there).
+        if 'device CONNECTED' in line:
+            self._on_state_change('connected', line)
+            self._logger.add('BLE_STATE', line)
+        elif 'device DISCONNECTED' in line:
+            self._on_state_change('disconnected', line)
+            self._logger.add('BLE_STATE', line)
+        elif 'advertising the Nordic UART Service' in line:
+            self._on_state_change('advertising', line)
+            self._logger.add('BLE_STATE', line)
+        elif 'Auto-accept pairing agent registered' in line:
+            self._logger.add('BLE_STATE', line)
+        elif line.startswith('[ble] ') and ' -> ' in line:
+            # E.g. "[ble] UP -> U"  → BLE command was received
+            self._logger.add('BLE', line[6:])
+        elif line.startswith('[ble]'):
+            self._logger.add('BLE', line[6:].lstrip())
+        elif line.startswith('FATAL') or 'failed' in line.lower() or 'error' in line.lower():
+            self._logger.add('ERROR', line)
+        else:
+            self._logger.add('INFO', line)
+
+
+# --------------------------------------------------------------------------- #
+# Camera panel
+# --------------------------------------------------------------------------- #
+class CameraPanel:
+    """Live camera preview + camera-related buttons, packed into a parent frame.
 
     Tk widgets are not thread-safe, so a background thread pulls frames
     from picamera2 into a tiny queue (size 1, latest-wins) and the Tk
-    main thread reads from it via .after().  Decoding picamera2's RGB
-    array → PIL.Image → ImageTk.PhotoImage all happens on the GUI
-    thread, which is fast at our 5 fps target."""
+    main thread reads from it via .after(). The camera is physically
+    upside-down on this robot, so frames get a 180° rotation before
+    being shown or sent to the lawn-check API."""
 
-    def __init__(self, root: tk.Tk, camera: CameraSource | None, fps: int = 5):
+    def __init__(self, root: tk.Tk, parent: tk.Widget, camera, fps: int = 5,
+                 flip: bool = True, frame_publisher: 'JpegFramePublisher | None' = None,
+                 publish_size=(320, 240), publish_quality: int = 60):
         self._root = root
         self._camera = camera
         self._fps = max(1, min(15, int(fps)))
+        self._flip = flip
+        self._frame_publisher = frame_publisher
+        self._publish_size = publish_size
+        self._publish_quality = publish_quality
         self._stop = threading.Event()
         self._queue: queue.Queue = queue.Queue(maxsize=1)
         self._lawn_busy = False
 
-        self.top = tk.Toplevel(root)
-        self.top.title('Robot Camera')
-        self.top.configure(bg='#0f172a')
-        self.top.geometry('640x580')
+        # pack_propagate(False) so the camera image (which we resize to
+        # fit the canvas) can't push the panel — and the whole window —
+        # to grow frame-by-frame.
+        self.frame = tk.Frame(parent, bg=BG, width=700)
+        self.frame.pack_propagate(False)
 
         self._label_status = tk.Label(
-            self.top, text='', fg='#94a3b8', bg='#0f172a',
+            self.frame, text='', fg=FG_DIM, bg=BG,
             font=('Helvetica', 11), anchor='w', padx=10, pady=6,
         )
         self._label_status.pack(side='top', fill='x')
 
-        self._label_image = tk.Label(self.top, bg='#020617')
-        self._label_image.pack(side='top', fill='both', expand=True, padx=8, pady=(0, 8))
+        self._canvas_image = tk.Canvas(self.frame, bg=BG_DARK,
+                                       highlightthickness=0)
+        self._canvas_image.pack(side='top', fill='both', expand=True,
+                                padx=8, pady=(0, 8))
+        self._canvas_image_id = None
 
-        # Control strip: lawn-check + camera port switch + camera info.
-        # All buttons fire-and-forget — they print verbose diagnostics to
-        # stderr so the operator can debug from the same terminal that
-        # launched the GUI.
-        ctrl = tk.Frame(self.top, bg='#0f172a')
+        ctrl = tk.Frame(self.frame, bg=BG)
         ctrl.pack(side='top', fill='x', padx=8, pady=(0, 8))
         self._btn_lawn = tk.Button(
-            ctrl, text='🌱 Lawn Check (Claude)', command=self._on_lawn_check,
-            bg='#22c55e', fg='#0f172a', activebackground='#16a34a',
+            ctrl, text='🌱 Lawn Check', command=self._on_lawn_check,
+            bg=ACCENT, fg=BG, activebackground='#16a34a',
             font=('Helvetica', 11, 'bold'), bd=0, padx=12, pady=6,
         )
         self._btn_lawn.pack(side='left', padx=(0, 6))
         self._btn_cam0 = tk.Button(
             ctrl, text='Port 0', command=lambda: self._on_switch_port(0),
-            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            bg='#1e293b', fg=FG, activebackground='#334155',
             font=('Helvetica', 10), bd=0, padx=10, pady=6,
         )
         self._btn_cam0.pack(side='left', padx=2)
         self._btn_cam1 = tk.Button(
             ctrl, text='Port 1', command=lambda: self._on_switch_port(1),
-            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            bg='#1e293b', fg=FG, activebackground='#334155',
             font=('Helvetica', 10), bd=0, padx=10, pady=6,
         )
         self._btn_cam1.pack(side='left', padx=2)
         self._btn_caminfo = tk.Button(
             ctrl, text='Camera Info', command=self._on_camera_info,
-            bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+            bg='#1e293b', fg=FG, activebackground='#334155',
             font=('Helvetica', 10), bd=0, padx=10, pady=6,
         )
         self._btn_caminfo.pack(side='left', padx=2)
@@ -135,9 +541,8 @@ class CameraWindow:
         if not _LAWN_AVAILABLE:
             self._btn_lawn.config(state='disabled', bg='#334155', fg='#64748b')
 
-        self._photo = None      # keep a strong ref so Tk doesn't GC the PhotoImage
+        self._photo = None
 
-        # Lazy import — only the camera window depends on PIL.
         try:
             from PIL import Image, ImageTk  # type: ignore
             self._Image = Image
@@ -154,11 +559,12 @@ class CameraWindow:
         if self._Image is None or self._ImageTk is None:
             return
 
-        self._set_status(f'Camera ready ({fps} fps).')
+        flip_note = '' if flip else ' (no flip)'
+        self._set_status(f'Camera ready ({self._fps} fps){flip_note}.')
         self._thread = threading.Thread(target=self._capture_loop, daemon=True,
                                         name='wifi-desktop-camera')
         self._thread.start()
-        self.top.after(50, self._drain)
+        self.frame.after(50, self._drain)
 
     def _set_status(self, txt):
         self._label_status.config(text=txt)
@@ -179,9 +585,29 @@ class CameraWindow:
                     self._queue.put_nowait(rgb)
                 except queue.Full:
                     pass
+                # Also encode a smaller JPEG for the network publisher
+                # (BLE bridge subscribes here so phones get video).
+                if self._frame_publisher is not None and self._Image is not None:
+                    try:
+                        self._frame_publisher.publish(self._encode_publish_jpeg(rgb))
+                    except Exception:
+                        pass
             dt = time.monotonic() - t0
             if dt < period:
                 time.sleep(period - dt)
+
+    def _encode_publish_jpeg(self, rgb):
+        import io
+        img = self._Image.fromarray(rgb)
+        if self._flip:
+            img = img.transpose(self._Image.ROTATE_180)
+        # thumbnail() preserves aspect ratio and only downscales — never
+        # upscales — so a 320x240 publish target always stays within the
+        # bandwidth budget the BLE link can handle.
+        img.thumbnail(self._publish_size, self._Image.BILINEAR)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=self._publish_quality)
+        return buf.getvalue()
 
     def _drain(self):
         if self._stop.is_set():
@@ -193,36 +619,35 @@ class CameraWindow:
         if rgb is not None and self._Image is not None and self._ImageTk is not None:
             try:
                 img = self._Image.fromarray(rgb)
-                w = max(160, self._label_image.winfo_width())
-                h = max(120, self._label_image.winfo_height())
+                if self._flip:
+                    img = img.transpose(self._Image.ROTATE_180)
+                cw = max(160, self._canvas_image.winfo_width())
+                ch = max(120, self._canvas_image.winfo_height())
                 src_w, src_h = img.size
-                scale = min(w / src_w, h / src_h)
+                scale = min(cw / src_w, ch / src_h)
                 tw, th = max(1, int(src_w * scale)), max(1, int(src_h * scale))
                 img = img.resize((tw, th), self._Image.BILINEAR)
                 self._photo = self._ImageTk.PhotoImage(img)
-                self._label_image.config(image=self._photo)
+                if self._canvas_image_id is None:
+                    self._canvas_image_id = self._canvas_image.create_image(
+                        cw // 2, ch // 2, image=self._photo, anchor='center')
+                else:
+                    self._canvas_image.coords(self._canvas_image_id,
+                                              cw // 2, ch // 2)
+                    self._canvas_image.itemconfig(self._canvas_image_id,
+                                                  image=self._photo)
             except Exception as e:
                 self._set_status(f'Display error: {e}')
-        self.top.after(50, self._drain)
+        self.frame.after(50, self._drain)
 
     # ----- Camera-port + lawn-check controls --------------------------------
 
     def _on_switch_port(self, port):
-        """Stop the live preview, switch CSI port on the shared CameraSource,
-        and resume.  Prints every step to stderr so debugging which port
-        the sensor is actually on doesn't require digging into the BLE
-        replies in parallel.
-
-        Runs synchronously on the GUI thread: set_camera_num re-opens
-        picamera2 which can take ~1 s; that's a noticeable hitch in the
-        Tk loop but acceptable for a manual debug action."""
         if self._camera is None:
             self._set_status(f'Cannot switch to port {port}: --no-camera at startup.')
             return
         print(f'[desktop] requesting camera port switch to {port}…', file=sys.stderr)
         self._set_status(f'Switching to port {port}…')
-        # Briefly stop the queue-drain by signalling a soft pause: drain
-        # whatever's queued so we don't render a half-frame after re-open.
         try:
             self._queue.get_nowait()
         except queue.Empty:
@@ -236,11 +661,6 @@ class CameraWindow:
             print(f'[desktop] port switch FAILED: {e}', file=sys.stderr)
 
     def _on_camera_info(self):
-        """Print the full libcamera enumeration to stderr and update the
-        status bar with a compact summary.  This is the headline diagnostic
-        for 'why can't the Pi see my camera?' — if the port the ribbon is
-        plugged into doesn't appear here, the problem is electrical /
-        dtoverlay, not picamera2."""
         if self._camera is None:
             self._set_status('No camera available (--no-camera).')
             return
@@ -264,13 +684,6 @@ class CameraWindow:
             self._set_status(f'CAMINFO: {len(cams)} cam(s), active=port {active}. {summary}')
 
     def _on_lawn_check(self):
-        """Capture a high-res still and ask Claude for a grass-health verdict.
-
-        Runs the capture + API call on a background thread so the Tk loop
-        keeps repainting.  Result is delivered back to the main thread
-        via after_idle(), which then pops a Toplevel showing the photo
-        and Claude's verdict — plus dumps the full structured response
-        to stderr so the operator has the same data in their terminal."""
         if self._lawn_busy:
             return
         if not _LAWN_AVAILABLE:
@@ -285,16 +698,34 @@ class CameraWindow:
             return
 
         self._lawn_busy = True
-        self._btn_lawn.config(state='disabled', text='🌱 Working…', bg='#334155', fg='#94a3b8')
+        self._btn_lawn.config(state='disabled', text='🌱 Working…', bg='#334155', fg=FG_DIM)
         self._set_status('Lawn check: capturing photo + asking Claude…')
         print('[desktop] LAWN CHECK starting…', file=sys.stderr)
+
+        flip = self._flip
+        Image = self._Image
 
         def _work():
             try:
                 jpeg = self._camera.capture_photo_jpeg()
                 if not jpeg:
                     raise RuntimeError('Photo capture returned no bytes.')
-                # encode_for_api wants a file path; write to a tempfile.
+                # Always re-encode if PIL is available so we can flip AND
+                # add a touch of saturation + contrast — Pi/IMX519 stills
+                # come out a bit washed-out, and the muted greens hurt
+                # the model's read of lawn health.
+                if Image is not None:
+                    import io
+                    from PIL import ImageEnhance  # type: ignore
+                    img = Image.open(io.BytesIO(jpeg))
+                    if flip:
+                        img = img.transpose(Image.ROTATE_180)
+                    img = ImageEnhance.Color(img).enhance(1.35)     # +35% saturation
+                    img = ImageEnhance.Contrast(img).enhance(1.15)  # +15% contrast
+                    img = ImageEnhance.Sharpness(img).enhance(1.1)  # mild edge crispness
+                    buf = io.BytesIO()
+                    img.save(buf, format='JPEG', quality=95)
+                    jpeg = buf.getvalue()
                 import tempfile
                 fd, path = tempfile.mkstemp(prefix='lawncam_desktop_', suffix='.jpg')
                 try:
@@ -315,10 +746,9 @@ class CameraWindow:
 
     def _on_lawn_done(self, jpeg_bytes, result):
         self._lawn_busy = False
-        self._btn_lawn.config(state='normal', text='🌱 Lawn Check (Claude)',
-                              bg='#22c55e', fg='#0f172a')
+        self._btn_lawn.config(state='normal', text='🌱 Lawn Check',
+                              bg=ACCENT, fg=BG)
         self._set_status('Lawn check complete — see popup.')
-        # Dump the full structured result to the console for the operator.
         print('[desktop] =========== LAWN CHECK RESULT ===========', file=sys.stderr)
         try:
             import json
@@ -330,8 +760,8 @@ class CameraWindow:
 
     def _on_lawn_failed(self, msg):
         self._lawn_busy = False
-        self._btn_lawn.config(state='normal', text='🌱 Lawn Check (Claude)',
-                              bg='#22c55e', fg='#0f172a')
+        self._btn_lawn.config(state='normal', text='🌱 Lawn Check',
+                              bg=ACCENT, fg=BG)
         self._set_status(f'Lawn check failed: {msg}')
 
     def close(self):
@@ -339,26 +769,20 @@ class CameraWindow:
 
 
 class LawnResultPopup:
-    """Modal-ish Tk Toplevel that shows the JPEG + the grass-health verdict.
-
-    Not actually modal — tkinter's grab_set on a Toplevel often misbehaves
-    on Linux desktops — but it's a distinct window that sits on top so
-    the operator can read the verdict without dismissing the camera
-    preview.  Closes with the X button or by hitting Escape."""
+    """Toplevel that shows the JPEG + grass-health verdict. Esc closes."""
 
     def __init__(self, root: tk.Tk, jpeg_bytes: bytes, result: dict):
         self.top = tk.Toplevel(root)
         self.top.title('Lawn Check Result')
-        self.top.configure(bg='#0f172a')
+        self.top.configure(bg=BG)
         self.top.geometry('560x720')
         self.top.bind('<Escape>', lambda _e: self.top.destroy())
 
-        # Header — colour-coded health bucket.
         score = result.get('health_score')
         present = bool(result.get('lawn_present'))
         if not present:
             bucket_label = 'No lawn detected'
-            bucket_color = '#94a3b8'
+            bucket_color = FG_DIM
             score_text = 'n/a'
         else:
             try:
@@ -367,62 +791,91 @@ class LawnResultPopup:
                 s = 0
             if s <= 30:    bucket_label, bucket_color = 'Poor', '#ef4444'
             elif s <= 75:  bucket_label, bucket_color = 'Fair', '#eab308'
-            else:          bucket_label, bucket_color = 'Healthy', '#22c55e'
+            else:          bucket_label, bucket_color = 'Healthy', ACCENT
             score_text = f'{max(0, min(100, s))} / 100'
 
-        hdr = tk.Frame(self.top, bg='#0f172a')
+        hdr = tk.Frame(self.top, bg=BG)
         hdr.pack(side='top', fill='x', padx=14, pady=(14, 6))
-        tk.Label(hdr, text='LAWN HEALTH', bg='#0f172a', fg='#94a3b8',
+        tk.Label(hdr, text='LAWN HEALTH', bg=BG, fg=FG_DIM,
                  font=('Helvetica', 10, 'bold')).pack(side='left')
-        tk.Label(hdr, text=score_text, bg='#0f172a', fg=bucket_color,
+        tk.Label(hdr, text=score_text, bg=BG, fg=bucket_color,
                  font=('Helvetica', 22, 'bold')).pack(side='right')
 
-        tk.Label(self.top, text=bucket_label, bg='#0f172a', fg=bucket_color,
+        tk.Label(self.top, text=bucket_label, bg=BG, fg=bucket_color,
                  font=('Helvetica', 12, 'bold')).pack(side='top', anchor='w', padx=14)
 
-        # Image
         try:
             from PIL import Image, ImageTk  # type: ignore
             import io
             img = Image.open(io.BytesIO(jpeg_bytes))
-            # Constrain to ~520 px wide so it fits.
             w, h = img.size
             scale = min(520.0 / w, 360.0 / h, 1.0)
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.BILINEAR)
             self._photo = ImageTk.PhotoImage(img)
-            tk.Label(self.top, image=self._photo, bg='#020617',
+            tk.Label(self.top, image=self._photo, bg=BG_DARK,
                      borderwidth=0).pack(side='top', padx=14, pady=10)
         except Exception as e:
             tk.Label(self.top, text=f'(image preview failed: {e})',
-                     bg='#0f172a', fg='#94a3b8').pack(side='top', padx=14, pady=10)
+                     bg=BG, fg=FG_DIM).pack(side='top', padx=14, pady=10)
 
-        # Verdict + recs scroll area.
-        body = tk.Frame(self.top, bg='#0f172a')
+        body = tk.Frame(self.top, bg=BG)
         body.pack(side='top', fill='both', expand=True, padx=14, pady=(0, 8))
 
         summary = (result.get('summary') or '').strip() or '(no summary returned)'
-        tk.Label(body, text='Summary', bg='#0f172a', fg='#94a3b8',
+        tk.Label(body, text='Summary', bg=BG, fg=FG_DIM,
                  font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
-        tk.Message(body, text=summary, width=520, bg='#0f172a', fg='#e2e8f0',
+        tk.Message(body, text=summary, width=520, bg=BG, fg=FG,
                    font=('Helvetica', 11)).pack(fill='x', pady=(0, 8))
 
         issues = result.get('issues') or []
         if issues:
-            tk.Label(body, text='Issues', bg='#0f172a', fg='#94a3b8',
+            tk.Label(body, text='Issues', bg=BG, fg=FG_DIM,
                      font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
             tk.Message(body, text='• ' + '\n• '.join(issues), width=520,
-                       bg='#0f172a', fg='#fcd34d',
+                       bg=BG, fg='#fcd34d',
                        font=('Helvetica', 10)).pack(fill='x', pady=(0, 8))
 
         recs = result.get('recommendations') or []
         if recs:
-            tk.Label(body, text='Recommendations', bg='#0f172a', fg='#94a3b8',
+            tk.Label(body, text='Recommendations  —  what to do, and when',
+                     bg=BG, fg=FG_DIM,
                      font=('Helvetica', 10, 'bold'), anchor='w').pack(fill='x')
-            tk.Message(body, text='• ' + '\n• '.join(recs), width=520,
-                       bg='#0f172a', fg='#86efac',
-                       font=('Helvetica', 10)).pack(fill='x', pady=(0, 8))
+            # Sort high-priority items to the top so the operator sees the
+            # urgent stuff first.
+            PRI_ORDER = {'high': 0, 'medium': 1, 'low': 2, '': 3}
+            PRI_COLOR = {'high': '#f87171', 'medium': '#fbbf24', 'low': '#86efac'}
 
-        # Metadata footer.
+            def _key(r):
+                if isinstance(r, dict):
+                    return PRI_ORDER.get((r.get('priority') or '').lower(), 3)
+                return 3
+            for r in sorted(recs, key=_key):
+                if isinstance(r, dict):
+                    pri = (r.get('priority') or '').lower()
+                    action = (r.get('action') or '').strip()
+                    when = (r.get('when') or '').strip()
+                    color = PRI_COLOR.get(pri, '#86efac')
+                    pri_tag = f'[{pri.upper()}] ' if pri else ''
+                    row = tk.Frame(body, bg=BG)
+                    row.pack(fill='x', pady=(0, 4))
+                    tk.Label(row, text='•', bg=BG, fg=color,
+                             font=('Helvetica', 11, 'bold')
+                             ).pack(side='left', anchor='nw', padx=(0, 6))
+                    text_col = tk.Frame(row, bg=BG)
+                    text_col.pack(side='left', fill='x', expand=True)
+                    tk.Message(text_col, text=f'{pri_tag}{action}', width=480,
+                               bg=BG, fg=color, anchor='w',
+                               font=('Helvetica', 10, 'bold')).pack(fill='x', anchor='w')
+                    if when:
+                        tk.Message(text_col, text=f'When: {when}', width=480,
+                                   bg=BG, fg=FG, anchor='w',
+                                   font=('Helvetica', 10)).pack(fill='x', anchor='w')
+                else:
+                    # Legacy plain-string shape.
+                    tk.Message(body, text=f'• {r}', width=520,
+                               bg=BG, fg='#86efac',
+                               font=('Helvetica', 10)).pack(fill='x', pady=(0, 4))
+
         meta_bits = []
         if result.get('_model'): meta_bits.append(f'model={result["_model"]}')
         if result.get('confidence') is not None:
@@ -435,69 +888,105 @@ class LawnResultPopup:
             meta_bits.append(f'status={result["health_status"]}')
         if meta_bits:
             tk.Label(self.top, text='  •  '.join(meta_bits),
-                     bg='#0f172a', fg='#64748b',
+                     bg=BG, fg='#64748b',
                      font=('Helvetica', 9), anchor='w').pack(side='bottom', fill='x',
                                                               padx=14, pady=(0, 12))
 
         tk.Button(self.top, text='Close', command=self.top.destroy,
-                  bg='#1e293b', fg='#e2e8f0', activebackground='#334155',
+                  bg='#1e293b', fg=FG, activebackground='#334155',
                   font=('Helvetica', 10), bd=0, padx=14, pady=6).pack(
             side='bottom', anchor='e', padx=14, pady=4)
 
 
 # --------------------------------------------------------------------------- #
-# Lidar polar plot window
+# Lidar panel
 # --------------------------------------------------------------------------- #
-class LidarWindow:
-    """Tk top-level showing a top-down polar plot of the RPLidar scan.
+class LidarPanel:
+    """Top-down polar plot of the RPLidar scan, packed into a parent frame."""
 
-    The robot is drawn at the canvas centre as a small triangle pointing
-    'forward' (0°, up).  Concentric rings mark distance in metres.  Lidar
-    returns are drawn as small dots; the closest hit inside each 30°
-    sector gets a text label with its distance.
-
-    Tk is not thread-safe, so the rplidar callback only stashes the
-    latest scan under a lock — the Tk main loop redraws via after()."""
-
-    # Visual tuning
-    BG          = '#0f172a'
     RING_COLOR  = '#1e293b'
     AXIS_COLOR  = '#334155'
     POINT_COLOR = '#38bdf8'
-    NEAR_COLOR  = '#fbbf24'   # nearest-in-sector marker
-    LABEL_COLOR = '#e2e8f0'
-    ROBOT_COLOR = '#22c55e'
-    SECTOR_DEG  = 30          # one distance label per N° sector
-    REDRAW_MS   = 200         # ~5 Hz
+    NEAR_COLOR  = '#fbbf24'
+    LABEL_COLOR = FG
+    ROBOT_COLOR = ACCENT
+    SECTOR_DEG  = 30
+    REDRAW_MS   = 200
 
-    def __init__(self, root: tk.Tk, lidar: LidarSource | None):
-        self._latest_points: list[tuple[float, float]] = []   # (angle_deg, dist_m)
+    def __init__(self, root: tk.Tk, parent: tk.Widget, lidar):
+        self._root = root
+        self._lidar = lidar
+        self._latest_points: list[tuple[float, float]] = []
         self._scan_lock = threading.Lock()
-        self._max_range_m = 5.0   # auto-grows up to LIDAR_MAX_M
+        self._max_range_m = 5.0
 
-        self.top = tk.Toplevel(root)
-        self.top.title('Robot Lidar')
-        self.top.configure(bg=self.BG)
-        self.top.geometry('720x760')
+        self.frame = tk.Frame(parent, bg=BG, width=560)
+        self.frame.pack_propagate(False)
 
+        header = tk.Frame(self.frame, bg=BG)
+        header.pack(side='top', fill='x')
         self._status = tk.Label(
-            self.top, text='', fg='#94a3b8', bg=self.BG,
-            font=('Helvetica', 11), anchor='w', padx=10, pady=6,
+            header, text='', fg=FG_DIM, bg=BG,
+            font=('Helvetica', 10), anchor='w', padx=10, pady=4,
         )
-        self._status.pack(side='top', fill='x')
+        self._status.pack(side='left', fill='x', expand=True)
+        self._retry_btn = tk.Button(
+            header, text='Retry', command=self._on_retry,
+            bg='#1e293b', fg=FG, activebackground='#334155',
+            font=('Helvetica', 9), bd=0, padx=8, pady=2, takefocus=0,
+        )
+        self._retry_btn.pack(side='right', padx=(4, 6), pady=2)
 
-        self._canvas = tk.Canvas(self.top, bg=self.BG, highlightthickness=0)
+        self._canvas = tk.Canvas(self.frame, bg=BG, highlightthickness=0)
         self._canvas.pack(side='top', fill='both', expand=True, padx=8, pady=(0, 8))
 
         if lidar is not None and lidar.available:
-            lidar._on_scan = self._on_scan   # noqa: SLF001 — same hook BLE streamer uses
+            lidar._on_scan = self._on_scan   # noqa: SLF001
             lidar.start()
-            self._status.config(text='Lidar running — distances in metres, robot at centre, 0° = forward.')
+            self._status.config(text='Lidar starting…')
         else:
             note = lidar.reason if lidar is not None else 'disabled'
             self._status.config(text=f'Lidar: {note}')
 
-        self.top.after(self.REDRAW_MS, self._redraw)
+        self._last_scan_at = 0.0
+        self.frame.after(self.REDRAW_MS, self._redraw)
+        self.frame.after(2000, self._health_check)
+
+    def _on_retry(self):
+        if self._lidar is None:
+            return
+        self._status.config(text='Lidar: stopping…')
+        try: self._lidar.stop()
+        except Exception: pass
+        self._status.config(text='Lidar: re-probing…')
+        if not self._lidar.reprobe(quiet=False):
+            self._status.config(text=f'Lidar: {self._lidar.reason}')
+            return
+        self._lidar._on_scan = self._on_scan   # noqa: SLF001
+        self._lidar.start()
+        self._last_scan_at = time.monotonic()
+        self._status.config(text='Lidar: restarting…')
+
+    def _health_check(self):
+        """Every 3 s: if we claimed available but no scans in the last 5 s,
+        nudge the lidar to restart. Covers the 'iter_scans died silently'
+        case (e.g. 'Incorrect descriptor starting bytes' on a stale A1)."""
+        try:
+            if self._lidar is not None and self._lidar.available:
+                now = time.monotonic()
+                quiet = now - max(self._last_scan_at, 0)
+                if self._last_scan_at == 0:
+                    self._status.config(
+                        text='Lidar: waiting for first scan… (Retry if stuck)')
+                if quiet > 5.0 and self._lidar._thread is None:  # noqa: SLF001
+                    self._status.config(text='Lidar: scan thread died — auto-restarting…')
+                    try: self._lidar.start()
+                    except Exception as e:
+                        self._status.config(text=f'Lidar restart failed: {e}')
+            elif self._lidar is not None and not self._lidar.available:
+                self._status.config(text=f'Lidar: {self._lidar.reason} — click Retry')
+        finally:
+            self.frame.after(3000, self._health_check)
 
     def _on_scan(self, points):
         usable = []
@@ -508,6 +997,13 @@ class LidarWindow:
             usable.append((float(ang) % 360.0, d_m))
         with self._scan_lock:
             self._latest_points = usable
+        self._last_scan_at = time.monotonic()
+        if self._status.cget('text').startswith('Lidar:') and 'running' not in self._status.cget('text'):
+            try:
+                self._root.after_idle(lambda: self._status.config(
+                    text=f'Lidar running — {len(usable)} returns/scan'))
+            except Exception:
+                pass
 
     def _redraw(self):
         c = self._canvas
@@ -516,7 +1012,7 @@ class LidarWindow:
         w = c.winfo_width()
         h = c.winfo_height()
         if w < 50 or h < 50:
-            self.top.after(self.REDRAW_MS, self._redraw)
+            self.frame.after(self.REDRAW_MS, self._redraw)
             return
         cx, cy = w / 2.0, h / 2.0
         plot_radius = min(w, h) / 2.0 - 30
@@ -524,18 +1020,14 @@ class LidarWindow:
         with self._scan_lock:
             pts = list(self._latest_points)
 
-        # Auto-grow the plot range so distant returns stay on-screen, but
-        # never shrink below 2 m (avoids jumpy axes for tiny rooms).
         if pts:
             target = max(2.0, math.ceil(max(p[1] for p in pts)))
             target = min(target, LIDAR_MAX_M)
-            # gentle hysteresis — only adjust when far off
             if target > self._max_range_m or target < self._max_range_m - 1.0:
                 self._max_range_m = target
         max_r = max(1.0, self._max_range_m)
         px_per_m = plot_radius / max_r
 
-        # --- range rings + labels ----------------------------------------- #
         ring_step = 1.0 if max_r <= 6.0 else 2.0
         r = ring_step
         while r <= max_r + 1e-6:
@@ -547,7 +1039,6 @@ class LidarWindow:
                           font=('Helvetica', 9))
             r += ring_step
 
-        # --- cardinal spokes (0/90/180/270) ------------------------------- #
         for ang_deg, label in ((0, '0°'), (90, '90°'), (180, '180°'), (270, '270°')):
             rad = math.radians(ang_deg)
             ex = cx + plot_radius * math.sin(rad)
@@ -558,8 +1049,6 @@ class LidarWindow:
             c.create_text(lx, ly, text=label, fill=self.LABEL_COLOR,
                           font=('Helvetica', 10, 'bold'))
 
-        # --- scan points -------------------------------------------------- #
-        # Bucket by sector so we can highlight the nearest hit per sector.
         sectors: dict[int, tuple[float, float]] = {}
         for ang_deg, d_m in pts:
             rad = math.radians(ang_deg)
@@ -572,20 +1061,17 @@ class LidarWindow:
             if cur is None or d_m < cur[1]:
                 sectors[sec] = (ang_deg, d_m)
 
-        # --- per-sector nearest labels ------------------------------------ #
         for ang_deg, d_m in sectors.values():
             rad = math.radians(ang_deg)
             x = cx + d_m * px_per_m * math.sin(rad)
             y = cy - d_m * px_per_m * math.cos(rad)
             c.create_oval(x - 3, y - 3, x + 3, y + 3,
                           fill=self.NEAR_COLOR, outline='')
-            # Label sits a hair further out than the point.
             tx = cx + (d_m * px_per_m + 14) * math.sin(rad)
             ty = cy - (d_m * px_per_m + 14) * math.cos(rad)
             c.create_text(tx, ty, text=f'{d_m:.2f} m',
                           fill=self.LABEL_COLOR, font=('Helvetica', 9))
 
-        # --- robot marker (triangle pointing forward / up) ---------------- #
         c.create_polygon(
             cx,       cy - 10,
             cx - 7,   cy + 7,
@@ -593,15 +1079,270 @@ class LidarWindow:
             fill=self.ROBOT_COLOR, outline='',
         )
 
-        # --- HUD: total points + max ring --------------------------------- #
         c.create_text(12, 10, anchor='nw',
                       text=f'{len(pts)} returns  •  range {max_r:.0f} m',
-                      fill='#94a3b8', font=('Helvetica', 10))
+                      fill=FG_DIM, font=('Helvetica', 10))
 
-        self.top.after(self.REDRAW_MS, self._redraw)
+        self.frame.after(self.REDRAW_MS, self._redraw)
 
     def close(self):
         pass
+
+
+# --------------------------------------------------------------------------- #
+# Drive controller (keyboard + on-screen D-pad → wifi-server :8080)
+# --------------------------------------------------------------------------- #
+class DriveController:
+    """Tracks which direction keys are held and pumps commands to wifi-server.
+
+    The wifi-server treats each UP/DOWN/LEFT/RIGHT as a *step* (±3 on the
+    servo value), so holding a key needs to fire the command repeatedly
+    to ramp speed — same cadence as web_drive.py (80 ms).
+
+    X11/Wayland auto-repeat fires KeyRelease+KeyPress pairs while a key
+    is held, so a real release is detected by deferring the release for
+    AUTOREPEAT_DEBOUNCE_MS; if a fresh KeyPress for the same key arrives
+    before the timer fires, the release is cancelled."""
+
+    REPEAT_MS = 80
+    AUTOREPEAT_DEBOUNCE_MS = 30
+
+    KEY_TO_CMD = {
+        'Up': 'UP', 'w': 'UP', 'W': 'UP',
+        'Down': 'DOWN', 's': 'DOWN', 'S': 'DOWN',
+        'Left': 'LEFT', 'a': 'LEFT', 'A': 'LEFT',
+        'Right': 'RIGHT', 'd': 'RIGHT', 'D': 'RIGHT',
+    }
+    STOP_KEYSYMS = ('space', 'x', 'X')
+
+    def __init__(self, root: tk.Tk, client: CommandClient,
+                 logger: 'Logger | None' = None):
+        self._root = root
+        self._client = client
+        self._logger = logger
+        self._active: list[str] = []                          # stack of held cmds
+        self._pending_release: dict[str, str] = {}            # cmd -> after_id
+        self._repeat_after: str | None = None
+        self._lock = threading.Lock()
+        self.on_status = lambda txt: None                     # set by panel
+        self.on_active_change = lambda active: None           # set by panel
+
+    # ------------------ key binding & event handlers ----------------------- #
+
+    def bind_keys(self, widget: tk.Misc):
+        for keysym, cmd in self.KEY_TO_CMD.items():
+            widget.bind_all(f'<KeyPress-{keysym}>',
+                            lambda _e, c=cmd: self._on_press(c))
+            widget.bind_all(f'<KeyRelease-{keysym}>',
+                            lambda _e, c=cmd: self._on_release(c))
+        for sym in self.STOP_KEYSYMS:
+            widget.bind_all(f'<KeyPress-{sym}>', lambda _e: self.emergency_stop())
+
+    def _on_press(self, cmd: str):
+        pending = self._pending_release.pop(cmd, None)
+        if pending:
+            try: self._root.after_cancel(pending)
+            except Exception: pass
+        if cmd not in self._active:
+            self._active.append(cmd)
+            self.on_active_change(set(self._active))
+            self._start_repeat()
+
+    def _on_release(self, cmd: str):
+        prev = self._pending_release.get(cmd)
+        if prev:
+            try: self._root.after_cancel(prev)
+            except Exception: pass
+        after_id = self._root.after(self.AUTOREPEAT_DEBOUNCE_MS,
+                                    lambda: self._do_release(cmd))
+        self._pending_release[cmd] = after_id
+
+    def _do_release(self, cmd: str):
+        self._pending_release.pop(cmd, None)
+        if cmd in self._active:
+            self._active.remove(cmd)
+        self.on_active_change(set(self._active))
+        if not self._active:
+            self._stop_repeat()
+            self.send('STOP')
+
+    # ------------------ on-screen pad presses ------------------------------ #
+
+    def press(self, cmd: str):
+        """Called by D-pad buttons; behaves like a keypress."""
+        self._on_press(cmd)
+
+    def release(self, cmd: str):
+        """Called by D-pad buttons; behaves like a keyrelease."""
+        self._on_release(cmd)
+
+    def emergency_stop(self):
+        self._stop_repeat()
+        # Clear any active keys / pending releases so a held key won't
+        # resume motion after the STOP.
+        for aid in list(self._pending_release.values()):
+            try: self._root.after_cancel(aid)
+            except Exception: pass
+        self._pending_release.clear()
+        self._active.clear()
+        self.on_active_change(set())
+        self.send('STOP')
+
+    # ------------------ repeat loop + send --------------------------------- #
+
+    def _start_repeat(self):
+        if self._repeat_after is None:
+            self._tick()
+
+    def _stop_repeat(self):
+        if self._repeat_after is not None:
+            try: self._root.after_cancel(self._repeat_after)
+            except Exception: pass
+            self._repeat_after = None
+
+    def _tick(self):
+        if not self._active:
+            self._repeat_after = None
+            return
+        cmd = self._active[-1]  # most recently pressed wins
+        self.send(cmd)
+        self._repeat_after = self._root.after(self.REPEAT_MS, self._tick)
+
+    def send(self, cmd: str):
+        if self._logger is not None:
+            self._logger.add('GUI', f'→ wifi-server: {cmd}')
+        def _do():
+            ok, reply = self._client.send_cmd(cmd)
+            if self._logger is not None:
+                if ok:
+                    # wifi-server's reply ("OK: UP") tells us what byte it
+                    # wrote to the Arduino — log it as the WIFI tag.
+                    self._logger.add('WIFI', f'{cmd}: {reply}')
+                else:
+                    self._logger.add('ERROR', f'{cmd} send failed: {reply}')
+            self._root.after_idle(
+                lambda: self.on_status(f'{cmd}: {reply}' if ok else f'{cmd} FAILED: {reply}'))
+        threading.Thread(target=_do, daemon=True).start()
+
+
+# --------------------------------------------------------------------------- #
+# Drive panel (D-pad + status)
+# --------------------------------------------------------------------------- #
+class DrivePanel:
+    """Right-hand panel: title, on-screen D-pad, STOP, last-reply line."""
+
+    PAD_BG    = '#1e293b'
+    PAD_HOVER = '#334155'
+    PAD_ACTIVE = ACTIVE
+    BTN_FG    = FG
+
+    def __init__(self, parent: tk.Widget, drive: DriveController):
+        self._drive = drive
+        # No pack_propagate(False) — DrivePanel now sits at the TOP of the
+        # right column above the lidar HUD, so we want it to size to its
+        # children (height) and stretch to the column (width via fill='x').
+        self.frame = tk.Frame(parent, bg=BG)
+
+        tk.Label(self.frame, text='Robot Drive', bg=BG, fg=FG_DIM,
+                 font=('Helvetica', 13, 'bold')).pack(side='top', anchor='w',
+                                                       padx=14, pady=(12, 4))
+        tk.Label(self.frame, text='Arrows / WASD = drive\nSpace or X = STOP',
+                 bg=BG, fg=FG_DIM, font=('Helvetica', 10), justify='left'
+                 ).pack(side='top', anchor='w', padx=14, pady=(0, 10))
+
+        pad = tk.Frame(self.frame, bg=BG)
+        pad.pack(side='top', padx=14, pady=(4, 8))
+
+        BTN_W = 6
+        BTN_H = 2
+        self._buttons: dict[str, tk.Button] = {}
+
+        def _mk(parent, label, cmd, **grid):
+            b = tk.Button(parent, text=label, width=BTN_W, height=BTN_H,
+                          bg=self.PAD_BG, fg=self.BTN_FG,
+                          activebackground=self.PAD_HOVER, bd=0,
+                          font=('Helvetica', 18, 'bold'),
+                          takefocus=0)
+            b.grid(**grid, padx=4, pady=4)
+            b.bind('<ButtonPress-1>',   lambda _e: self._drive.press(cmd))
+            b.bind('<ButtonRelease-1>', lambda _e: self._drive.release(cmd))
+            # Touch events for Wayland touchscreens — synth as the same.
+            b.bind('<Leave>',           lambda _e: self._drive.release(cmd))
+            self._buttons[cmd] = b
+            return b
+
+        _mk(pad, '▲', 'UP',    row=0, column=1)
+        _mk(pad, '◀', 'LEFT',  row=1, column=0)
+        _mk(pad, '▶', 'RIGHT', row=1, column=2)
+        _mk(pad, '▼', 'DOWN',  row=2, column=1)
+
+        stop = tk.Button(pad, text='STOP', width=BTN_W, height=BTN_H,
+                         bg='#dc2626', fg='white',
+                         activebackground='#991b1b', bd=0,
+                         font=('Helvetica', 11, 'bold'),
+                         takefocus=0,
+                         command=self._drive.emergency_stop)
+        stop.grid(row=1, column=1, padx=4, pady=4)
+        self._buttons['STOP'] = stop
+
+        self._status = tk.Label(self.frame, text='—', bg=BG, fg=FG_DIM,
+                                font=('Helvetica', 10), anchor='w',
+                                justify='left', wraplength=270)
+        self._status.pack(side='top', anchor='w', padx=14, pady=(8, 0), fill='x')
+
+        self._active_lbl = tk.Label(self.frame, text='held: none',
+                                    bg=BG, fg=FG_DIM,
+                                    font=('Helvetica', 10), anchor='w')
+        self._active_lbl.pack(side='top', anchor='w', padx=14, pady=(4, 12))
+
+        # --- BLE status box --------------------------------------------------
+        ble_box = tk.Frame(self.frame, bg=BG_DARK, bd=0)
+        ble_box.pack(side='top', fill='x', padx=14, pady=(8, 0))
+
+        tk.Label(ble_box, text='BLE', bg=BG_DARK, fg=FG_DIM,
+                 font=('Helvetica', 11, 'bold'), anchor='w'
+                 ).pack(side='top', anchor='w', padx=10, pady=(8, 0))
+        self._ble_state_lbl = tk.Label(
+            ble_box, text='state: unknown (waiting for ble_server)',
+            bg=BG_DARK, fg=FG_DIM, font=('Helvetica', 10),
+            anchor='w', justify='left', wraplength=300)
+        self._ble_state_lbl.pack(side='top', anchor='w', padx=10, pady=(2, 2))
+        self._ble_last_lbl = tk.Label(
+            ble_box, text='last event: —',
+            bg=BG_DARK, fg=FG_DIM, font=('Helvetica', 9),
+            anchor='w', justify='left', wraplength=300)
+        self._ble_last_lbl.pack(side='top', anchor='w', padx=10, pady=(0, 10))
+
+        drive.on_status = self._on_status
+        drive.on_active_change = self._on_active_change
+
+    def _on_status(self, txt: str):
+        self._status.config(text=txt)
+
+    def _on_active_change(self, active: set[str]):
+        for cmd, btn in self._buttons.items():
+            if cmd == 'STOP':
+                continue
+            if cmd in active:
+                btn.config(bg=self.PAD_ACTIVE)
+            else:
+                btn.config(bg=self.PAD_BG)
+        self._active_lbl.config(
+            text='held: ' + (', '.join(sorted(active)) if active else 'none'))
+
+    # ----- BLE status (called from BleLogTail via root.after_idle) ---------
+    BLE_STATE_COLOR = {
+        'connected':    '#22c55e',
+        'advertising':  '#fbbf24',
+        'disconnected': FG_DIM,
+        'unknown':      FG_DIM,
+    }
+
+    def set_ble_state(self, state: str, last_line: str = ''):
+        color = self.BLE_STATE_COLOR.get(state, FG_DIM)
+        self._ble_state_lbl.config(text=f'state: {state}', fg=color)
+        if last_line:
+            self._ble_last_lbl.config(text=f'last event: {last_line[:160]}')
 
 
 # --------------------------------------------------------------------------- #
@@ -609,15 +1350,32 @@ class LidarWindow:
 # --------------------------------------------------------------------------- #
 def main():
     parser = argparse.ArgumentParser(
-        description='Pi desktop GUI for wifi mode (camera + lidar polar plot).')
-    parser.add_argument('--no-camera', action='store_true', help='Skip the camera window.')
-    parser.add_argument('--no-lidar',  action='store_true', help='Skip the lidar window.')
+        description='Pi desktop GUI for wifi mode (camera + lidar + drive).')
+    parser.add_argument('--no-camera', action='store_true', help='Skip the camera panel.')
+    parser.add_argument('--no-lidar',  action='store_true', help='Skip the lidar panel.')
+    parser.add_argument('--no-flip',   action='store_true',
+                        help='Do not rotate the camera image 180° (use if you remount the camera).')
     parser.add_argument('--lidar-port', default='/dev/ttyUSB0',
                         help='Serial port for the RPLidar (default: /dev/ttyUSB0).')
     parser.add_argument('--camera-fps', type=int, default=5,
                         help='Live preview frame rate (default: 5).')
     parser.add_argument('--camera-width',  type=int, default=640)
     parser.add_argument('--camera-height', type=int, default=480)
+    parser.add_argument('--cmd-host', default='127.0.0.1',
+                        help='wifi-server host (default: 127.0.0.1).')
+    parser.add_argument('--cmd-port', type=int, default=8080,
+                        help='wifi-server port (default: 8080).')
+    parser.add_argument('--ble-log', default=None,
+                        help='Path to the BLE bridge log file to tail. '
+                             'Lines prefixed with "[ble]" become BLE log entries '
+                             'and connect/disconnect events update the BLE status box.')
+    parser.add_argument('--ble-relay-port', type=int, default=8081,
+                        help='Local TCP port for the BLE bridge to forward '
+                             'commands to (default: 8081). Set to 0 to disable.')
+    parser.add_argument('--frame-pub-port', type=int, default=8082,
+                        help='Local TCP port that publishes JPEG video frames '
+                             'for the BLE bridge to subscribe to (default: 8082). '
+                             'Set to 0 to disable.')
     args = parser.parse_args()
 
     camera = None
@@ -633,26 +1391,141 @@ def main():
     if not args.no_lidar:
         lidar = LidarSource(port=args.lidar_port)
 
+    client = CommandClient(args.cmd_host, args.cmd_port)
+
     root = tk.Tk()
-    root.withdraw()
+    root.title('Robot Console')
+    root.configure(bg=BG)
+    width = 0
+    if not args.no_camera: width += 700
+    if not args.no_lidar:  width += 560
+    width += 380
+    root.geometry(f'{max(900, width)}x820')
 
-    cam_win = None
-    if not args.no_camera:
-        cam_win = CameraWindow(root, camera, fps=args.camera_fps)
-        cam_win.top.protocol('WM_DELETE_WINDOW', root.quit)
+    # ttk theme so the Notebook tabs respect our dark palette.
+    style = ttk.Style()
+    try:
+        style.theme_use('clam')
+    except tk.TclError:
+        pass
+    style.configure('TNotebook', background=BG, borderwidth=0)
+    style.configure('TNotebook.Tab', background='#1e293b', foreground=FG,
+                    padding=(16, 6), font=('Helvetica', 11, 'bold'),
+                    borderwidth=0)
+    style.map('TNotebook.Tab',
+              background=[('selected', ACTIVE)],
+              foreground=[('selected', '#ffffff')])
 
-    lidar_win = None
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill='both', expand=True)
+
+    # --- Drive tab -------------------------------------------------------- #
+    # Layout: camera fills the left side (full height); right column splits
+    # vertically — drive panel on top, lidar overhead view (square) on the
+    # bottom right.
+    drive_tab = tk.Frame(notebook, bg=BG)
+    notebook.add(drive_tab, text='Drive')
+
+    main_frame = tk.Frame(drive_tab, bg=BG)
+    main_frame.pack(fill='both', expand=True)
+    main_frame.pack_propagate(False)
+
+    # We construct the Logger first so the publisher / panels can use it.
+    # (Tabs are created right after the camera panel below.)
+
+    cam_panel = None
+    # Frame publisher is created later (it needs the Logger), but we keep
+    # a slot here so the CameraPanel can be wired to it once it exists.
+
+    right_col = tk.Frame(main_frame, bg=BG, width=380)
+    right_col.pack(side='right', fill='y')
+    right_col.pack_propagate(False)
+
+    lidar_panel = None
     if not args.no_lidar:
-        lidar_win = LidarWindow(root, lidar)
-        lidar_win.top.protocol('WM_DELETE_WINDOW', root.quit)
+        # Pack the lidar at the BOTTOM of the right column so it sits in
+        # the lower-right of the window, like a HUD overhead view. The
+        # 360x360 box keeps the polar plot roughly square.
+        lidar_panel = LidarPanel(root, right_col, lidar)
+        # Override the panel frame's default width (set to 560 inside the
+        # class for the old side-by-side layout) so it fits the column.
+        lidar_panel.frame.config(width=360, height=360)
+        lidar_panel.frame.pack(side='bottom', fill='x', pady=(8, 0))
+
+    # --- Logs tab + Logger (built first so DriveController can log) ------- #
+    logs_tab = tk.Frame(notebook, bg=BG)
+    notebook.add(logs_tab, text='Logs')
+    logger = Logger(logs_tab)
+    logger.frame.pack(fill='both', expand=True)
+    logger.add('INFO', 'wifi-desktop starting…')
+
+    # JPEG frame publisher — BLE bridge subscribes here so phones get video
+    # while the GUI keeps owning the camera.
+    frame_publisher = None
+    if args.frame_pub_port and args.frame_pub_port > 0 and not args.no_camera:
+        frame_publisher = JpegFramePublisher('127.0.0.1', args.frame_pub_port, logger)
+        frame_publisher.start()
+
+    # Now actually build the CameraPanel (wired to the publisher) and put
+    # it on the Drive tab.
+    if not args.no_camera:
+        cam_panel = CameraPanel(root, main_frame, camera,
+                                fps=args.camera_fps, flip=not args.no_flip,
+                                frame_publisher=frame_publisher)
+        cam_panel.frame.pack(side='left', fill='both', expand=True,
+                             before=right_col)
+
+    drive = DriveController(root, client, logger=logger)
+    drive_panel = DrivePanel(right_col, drive)
+    drive_panel.frame.pack(side='top', fill='x')
+    drive.bind_keys(root)
+
+    # --- BLE relay (so BLE commands can reach wifi-server through us) ----- #
+    relay = None
+    if args.ble_relay_port and args.ble_relay_port > 0:
+        relay = BleRelay('127.0.0.1', args.ble_relay_port, client, logger,
+                         on_command=lambda cmd, reply: root.after_idle(
+                             lambda: drive_panel.set_ble_state(
+                                 'connected', f'{cmd} → {reply}')))
+        relay.start()
+
+    # --- BLE log tail (optional) ------------------------------------------ #
+    ble_tail = None
+    if args.ble_log:
+        def _on_ble_state(state, line):
+            root.after_idle(lambda: drive_panel.set_ble_state(state, line))
+        ble_tail = BleLogTail(args.ble_log, logger, _on_ble_state)
+        ble_tail.start()
+        logger.add('INFO', f'tailing BLE log: {args.ble_log}')
+    else:
+        drive_panel.set_ble_state('disabled', '(--ble-log not set; BLE bridge unmonitored)')
+        logger.add('INFO', 'BLE log tail disabled (no --ble-log)')
+
+    # Probe wifi-server so the status line shows reality at startup.
+    def _probe():
+        ok, reply = client.send_cmd('STATUS')
+        root.after_idle(lambda: drive_panel._on_status(
+            f'connected: {reply}' if ok else f'wifi-server unreachable: {reply}'))
+        logger.add('WIFI' if ok else 'ERROR',
+                   f'STATUS probe: {reply}' if ok else f'STATUS probe failed: {reply}')
+    threading.Thread(target=_probe, daemon=True).start()
+
+    root.protocol('WM_DELETE_WINDOW', root.quit)
+    root.focus_force()
 
     try:
         root.mainloop()
     finally:
-        if cam_win:
-            cam_win.close()
-        if lidar_win:
-            lidar_win.close()
+        if ble_tail:
+            ble_tail.stop()
+        if relay:
+            relay.stop()
+        if frame_publisher:
+            frame_publisher.stop()
+        if cam_panel:
+            cam_panel.close()
+        if lidar_panel:
+            lidar_panel.close()
         if lidar:
             lidar.stop()
         if camera:

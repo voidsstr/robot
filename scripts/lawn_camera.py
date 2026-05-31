@@ -67,8 +67,17 @@ use `health_status: "no_lawn"` and `health_score: 0`.
 
 Be specific and concise. Only report issues and recommendations you can \
 actually justify from the image — do not speculate beyond what is visible. \
-Recommendations should be concrete turf-care actions (water, mow at X height, \
-overseed, fertilise, spot-treat weeds, dethatch, etc.)."""
+Recommendations must be concrete turf-care actions (water, mow at X height, \
+overseed, fertilise, spot-treat weeds, dethatch, etc.).
+
+For EACH recommendation, also say WHEN to do it and how URGENT it is:
+  - `when`: a specific schedule or cadence — e.g. "twice weekly until rain \
+returns", "next mow, within 3–5 days, dry grass only", "now, then again in \
+4–6 weeks", "early autumn (Sept–Oct)", "after the next mow when grass is \
+dry". Never use vague phrasing like "as needed" or "regularly" — give a \
+concrete window or frequency the operator can act on.
+  - `priority`: "high" (do this week), "medium" (do within a month), or \
+"low" (seasonal / routine maintenance)."""
 
 
 # --------------------------------------------------------------------------- #
@@ -129,6 +138,23 @@ def assess_lawn(image_b64, media_type):
     from pydantic import BaseModel, Field  # noqa: PLC0415
     from typing import Literal  # noqa: PLC0415
 
+    class Recommendation(BaseModel):
+        action: str = Field(
+            description="Concrete turf-care action — e.g. 'water deeply, ~1 inch', "
+                        "'mow at 3 inches', 'overseed thin areas with tall fescue', "
+                        "'spot-treat broadleaf weeds', 'apply balanced slow-release fertiliser'."
+        )
+        when: str = Field(
+            description="Specific schedule or cadence for this action — e.g. "
+                        "'twice weekly until rain returns', 'next mow within 3-5 days, dry grass only', "
+                        "'now, then again in 4-6 weeks', 'early autumn (Sept-Oct)'. "
+                        "Avoid vague phrasing like 'as needed' or 'regularly'."
+        )
+        priority: Literal["high", "medium", "low"] = Field(
+            description="Urgency: 'high' = address this week, 'medium' = within a month, "
+                        "'low' = seasonal or routine maintenance."
+        )
+
     class LawnAssessment(BaseModel):
         lawn_present: bool = Field(
             description="True if a managed lawn / mown turf grass is the subject of the photo."
@@ -146,8 +172,9 @@ def assess_lawn(image_b64, media_type):
             description="Short phrases for each visible problem (e.g. 'brown patches', 'weeds', "
                         "'thin/bare spots', 'drought stress', 'disease ring', 'overgrown'). Empty if none."
         )
-        recommendations: list[str] = Field(
-            description="Concrete turf-care actions addressing the issues. Empty if none / no lawn."
+        recommendations: list[Recommendation] = Field(
+            description="Concrete turf-care actions, each with WHEN to do it and a priority. "
+                        "Empty if none / no lawn."
         )
         summary: str = Field(
             description="One or two plain-language sentences summarising the lawn's condition."
@@ -210,7 +237,19 @@ def print_report(result):
     if recs:
         print("  Recommendations:")
         for r in recs:
-            print(f"    - {r}")
+            if isinstance(r, dict):
+                pri = (r.get("priority") or "").upper()
+                pri_tag = f"[{pri}] " if pri else ""
+                action = r.get("action") or ""
+                when = r.get("when") or ""
+                line = f"    - {pri_tag}{action}"
+                if when:
+                    line += f"  —  WHEN: {when}"
+                print(line)
+            else:
+                # Tolerate the legacy plain-string shape if older results
+                # are re-loaded from disk.
+                print(f"    - {r}")
 
 
 def run_once(args):
